@@ -253,6 +253,7 @@ namespace Barotrauma
                 case "unbindkey":
                 case "wikiimage_character":
                 case "wikiimage_sub":
+                case "wikiimage_item":
                     return true;
                 default:
                     return client.HasConsoleCommandPermission(command);
@@ -670,6 +671,47 @@ namespace Barotrauma
                 MapEntity.SelectedList.Clear();
                 MapEntity.mapEntityList.ForEach(me => me.IsHighlighted = false);
                 WikiImage.Create(Submarine.MainSub);
+            }));
+
+            commands.Add(new Command("wikiimage_item", "wikiimage_item [itemname/itemidentifier]: Save an image of the provided item.", (string[] args) =>
+            {
+                string errorMsg = "";
+                if (args.Length == 0) { return; }
+                string itemNameOrId = args[0].ToLowerInvariant();
+                ItemPrefab itemPrefab =
+                    (MapEntityPrefab.FindByName(itemNameOrId) ??
+                    MapEntityPrefab.FindByIdentifier(itemNameOrId.ToIdentifier())) as ItemPrefab;
+                if (itemPrefab == null)
+                {
+                    errorMsg = "Item \"" + itemNameOrId + "\" not found!";
+                    var matching = ItemPrefab.Prefabs.Find(me => me.Name.StartsWith(itemNameOrId, StringComparison.OrdinalIgnoreCase) && me is ItemPrefab);
+                    if (matching != null)
+                    {
+                        errorMsg += $" Did you mean \"{matching.Name}\"?";
+                        if (matching.Name.Contains(" "))
+                        {
+                            errorMsg += $" Please note that you should surround multi-word names with quotation marks (e.q. spawnitem \"{matching.Name}\")";
+                        }
+                    }
+                    DebugConsole.NewMessage(errorMsg);
+                    return;
+                }
+                WikiImage.Create(itemPrefab);
+            },
+            () =>
+            {
+                List<string> itemNames = new List<string>();
+                foreach (ItemPrefab itemPrefab in ItemPrefab.Prefabs)
+                {
+                    if (!itemNames.Contains(itemPrefab.Name.Value))
+                    {
+                        itemNames.Add(itemPrefab.Name.Value);
+                    }
+                }
+                return new string[][]
+                {
+                    itemNames.ToArray()
+                };
             }));
 
             AssignRelayToServer("kick", false);
