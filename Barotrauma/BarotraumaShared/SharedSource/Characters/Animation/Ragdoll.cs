@@ -913,6 +913,8 @@ namespace Barotrauma
                 return Collider.SimPosition;
             }
 
+            DebugConsole.NewMessage($"{this.character.Name} ({this.character.ID.ToString()}) - {totalMass.ToString()} mass", Color.Cyan);
+
             return centerOfMass;
         }
 
