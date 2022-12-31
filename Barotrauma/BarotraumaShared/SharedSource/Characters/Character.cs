@@ -3895,6 +3895,25 @@ namespace Barotrauma
             // Don't allow beheading for monster attacks, because it happens too frequently (crawlers/tigerthreshers etc attacking each other -> they will most often target to the head)
             TrySeverLimbJoints(limbHit, attack.SeverLimbsProbability, attackResult.Damage, allowBeheading: attacker == null || attacker.IsHuman || attacker.IsPlayer, attacker: attacker);
 
+
+            string resultMsg = $"Attacker: {attacker.Name} ({attacker.JobIdentifier}) | Character: {this.Name} ({this.JobIdentifier}) | Vitality loss: {attackResult.Damage} | Limb: {limbHit.Name}";
+
+            if (attackResult.AppliedDamageModifiers.Any())
+            {
+                resultMsg += "\nAffliction strength modifiers:";
+                foreach (var modifier in attackResult.AppliedDamageModifiers)
+                {
+                    resultMsg += $"\n   {modifier.AfflictionIdentifiers}{modifier.AfflictionTypes} - *{modifier.DamageMultiplier}";
+                }
+            }
+
+            resultMsg += "\nAfflictions:";
+            foreach (var affliction in attackResult.Afflictions)
+            {
+                resultMsg += $"\n   {affliction.Prefab.Name} - {affliction.Strength}";
+            }
+            DebugConsole.NewMessage(resultMsg, Color.Red);
+
             return attackResult;
         }
 
