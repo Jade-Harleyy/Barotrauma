@@ -15,6 +15,7 @@ namespace Barotrauma
 
         public override bool AbandonWhenCannotCompleteSubjectives => false;
         public override bool AllowMultipleInstances => true;
+        public override bool AllowWhileHandcuffed => false;
 
         public HashSet<Item> ignoredItems = new HashSet<Item>();
 
@@ -158,11 +159,6 @@ namespace Barotrauma
 
         protected override void Act(float deltaTime)
         {
-            if (character.LockHands)
-            {
-                Abandon = true;
-                return;
-            }
             if (IdentifiersOrTags != null && !isDoneSeeking)
             {
                 if (checkInventory)
@@ -271,15 +267,49 @@ namespace Barotrauma
 
                 Inventory itemInventory = targetItem.ParentInventory;
                 var slots = itemInventory?.FindIndices(targetItem);
+                var droppedStack = TargetItem.DroppedStack.ToList();
                 if (HumanAIController.TakeItem(targetItem, character.Inventory, Equip, Wear, storeUnequipped: true, targetTags: IdentifiersOrTags))
                 {
-                    if (TakeWholeStack && slots != null)
+                    if (TakeWholeStack)
                     {
-                        foreach (int slot in slots)
+                        //taking the whole stack in this context means "as many items that can fit in one of the bot's slots", 
+                        //and the stack means either a stack of items in an inventory slot or a "dropped stack"
+                        //so we need a bit of extra logic here
+                        int maxStackSize = 0;
+                        int takenItemCount = 1;
+                        for (int i = 0; i < character.Inventory.Capacity; i++)
                         {
-                            foreach (Item item in itemInventory.GetItemsAt(slot).ToList())
+                            maxStackSize = Math.Max(maxStackSize, character.Inventory.HowManyCanBePut(targetItem.Prefab, i, condition: null));
+                        }
+                        if (slots != null)
+                        {
+                            foreach (int slot in slots)
                             {
-                                HumanAIController.TakeItem(item, character.Inventory, equip: false, storeUnequipped: true);
+                                foreach (Item item in itemInventory.GetItemsAt(slot).ToList())
+                                {
+                                    if (HumanAIController.TakeItem(item, character.Inventory, equip: false, storeUnequipped: true))
+                                    {
+                                        takenItemCount++;
+                                        if (takenItemCount >= maxStackSize) { break; }
+                                    }
+                                    else
+                                    {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        foreach (var item in droppedStack)
+                        {
+                            if (item == TargetItem) { continue; }
+                            if (HumanAIController.TakeItem(item, character.Inventory, equip: false, storeUnequipped: true))
+                            {
+                                takenItemCount++;
+                                if (takenItemCount >= maxStackSize) { break; }
+                            }
+                            else
+                            {
+                                break;
                             }
                         }
                     }
@@ -376,7 +406,7 @@ namespace Barotrauma
                 // Otherwise it will take some time for us to find a valid item when there are multiple items that we can't reach and some that we can.
                 // This is relatively expensive, so let's do this only when it significantly improves the behavior.
                 // Only allow one path find call per frame.
-                CheckPathForEachItem = priority >= AIObjectiveManager.LowestOrderPriority && (objectiveManager.IsCurrentOrder<AIObjectiveFixLeaks>() || objectiveManager.CurrentOrder is AIObjectiveGoTo gotoOrder && gotoOrder.IsFollowOrderObjective);
+                CheckPathForEachItem = priority >= AIObjectiveManager.LowestOrderPriority && (objectiveManager.IsCurrentOrder<AIObjectiveFixLeaks>() || objectiveManager.CurrentOrder is AIObjectiveGoTo gotoOrder && gotoOrder.IsFollowOrder);
             }
             bool checkPath = CheckPathForEachItem;
             // Reset if the character has switched subs.
@@ -411,7 +441,7 @@ namespace Barotrauma
                 if (!CheckItem(item)) { continue; }
                 if (item.Container != null)
                 {
-                    if (item.Container.HasTag("donttakeitems")) { continue; }
+                    if (item.Container.HasTag(Tags.DontTakeItems)) { continue; }
                     if (ignoredItems.Contains(item.Container)) { continue; }
                     if (ignoredContainerIdentifiers != null)
                     {
@@ -536,7 +566,7 @@ namespace Barotrauma
                 {
                     if (itemCandidates.FirstOrDefault() is { } itemCandidate)
                     {
-                        var path = PathSteering.PathFinder.FindPath(character.SimPosition, itemCandidate.item.SimPosition, character.Submarine, errorMsgStr: $"AIObjectiveGetItem {character.DisplayName}", nodeFilter: node => node.Waypoint.CurrentHull != null);
+                        var path = PathSteering.PathFinder.FindPath(character.SimPosition, character.GetRelativeSimPosition(itemCandidate.item), character.Submarine, errorMsgStr: $"AIObjectiveGetItem {character.DisplayName}", nodeFilter: node => node.Waypoint.CurrentHull != null);
                         if (path.Unreachable)
                         {
                             // Remove the invalid candidates and continue on the next frame.

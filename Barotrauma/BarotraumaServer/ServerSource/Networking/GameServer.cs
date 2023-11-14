@@ -21,15 +21,13 @@ namespace Barotrauma.Networking
 
         public override Voting Voting { get; }
 
-        private string serverName;
         public string ServerName
         {
-            get { return serverName; }
+            get { return ServerSettings.ServerName; }
             set
             {
                 if (string.IsNullOrEmpty(value)) { return; }
-
-                serverName = value;
+                ServerSettings.ServerName = value;
             }
         }
 
@@ -76,13 +74,21 @@ namespace Barotrauma.Networking
         private bool initiatedStartGame;
         private CoroutineHandle startGameCoroutine;
 
-        public TraitorManager TraitorManager;
-
         private readonly ServerEntityEventManager entityEventManager;
 
         public FileSender FileSender { get; private set; }
 
         public ModSender ModSender { get; private set; }
+
+        private TraitorManager traitorManager;
+        public TraitorManager TraitorManager
+        {
+            get 
+            {
+                traitorManager ??= new TraitorManager(this);
+                return traitorManager; 
+            }
+        }
         
 #if DEBUG
         public void PrintSenderTransters()
@@ -132,8 +138,6 @@ namespace Barotrauma.Networking
             {
                 name = name.Substring(0, NetConfig.ServerNameMaxLength);
             }
-
-            this.serverName = name;
 
             LastClientListUpdateID = 0;
 
@@ -362,21 +366,34 @@ namespace Barotrauma.Networking
                 for (int i = Character.CharacterList.Count - 1; i >= 0; i--)
                 {
                     Character character = Character.CharacterList[i];
-                    if (character.IsDead || !character.ClientDisconnected) { continue; }
-
-                    character.KillDisconnectedTimer += deltaTime;
-                    character.SetStun(1.0f);
+                    if (!character.ClientDisconnected) { continue; }
 
                     Client owner = connectedClients.Find(c => (c.Character == null || c.Character == character) && character.IsClientOwner(c));
-                    if ((OwnerConnection == null || owner?.Connection != OwnerConnection) && character.KillDisconnectedTimer > ServerSettings.KillDisconnectedTime)
+                    bool canOwnerTakeControl =
+                        owner != null && owner.InGame && !owner.NeedsMidRoundSync &&
+                        (!ServerSettings.AllowSpectating || !owner.SpectateOnly);
+                    if (!character.IsDead)
                     {
-                        character.Kill(CauseOfDeathType.Disconnected, null);
-                        continue;
-                    }
+                        character.KillDisconnectedTimer += deltaTime;
+                        character.SetStun(1.0f);
 
-                    if (owner != null && owner.InGame && !owner.NeedsMidRoundSync &&
-                        (!ServerSettings.AllowSpectating || !owner.SpectateOnly))
+                        if ((OwnerConnection == null || owner?.Connection != OwnerConnection) && character.KillDisconnectedTimer > ServerSettings.KillDisconnectedTime)
+                        {
+                            character.Kill(CauseOfDeathType.Disconnected, null);
+                            continue;
+                        }
+                        if (canOwnerTakeControl)
+                        {
+                            SetClientCharacter(owner, character);
+                        }
+                    }
+                    else if (canOwnerTakeControl &&
+                        character.CauseOfDeath?.Type == CauseOfDeathType.Disconnected &&
+                        character.CharacterHealth.VitalityDisregardingDeath > 0)
                     {
+                        //create network event immediately to ensure the character is revived client-side
+                        //before the client gains control of it (normally status events are created periodically)                        
+                        character.Revive(removeAfflictions: false, createNetworkEvent: true);
                         SetClientCharacter(owner, character);
                     }
                 }
@@ -416,12 +433,7 @@ namespace Barotrauma.Networking
                 }
 
                 float endRoundDelay = 1.0f;
-                if (TraitorManager?.ShouldEndRound ?? false)
-                {
-                    endRoundDelay = 5.0f;
-                    endRoundTimer += deltaTime;
-                }
-                else if (ServerSettings.AutoRestart && isCrewDead)
+                if (ServerSettings.AutoRestart && isCrewDead)
                 {
                     endRoundDelay = 5.0f;
                     endRoundTimer += deltaTime;
@@ -456,11 +468,7 @@ namespace Barotrauma.Networking
 
                 if (endRoundTimer >= endRoundDelay)
                 {
-                    if (TraitorManager?.ShouldEndRound ?? false)
-                    {
-                        Log("Ending round (a traitor completed their mission)", ServerLog.MessageType.ServerMessage);
-                    }
-                    else if (ServerSettings.AutoRestart && isCrewDead)
+                    if (ServerSettings.AutoRestart && isCrewDead)
                     {
                         Log("Ending round (entire crew dead)", ServerLog.MessageType.ServerMessage);
                     }
@@ -833,6 +841,9 @@ namespace Barotrauma.Networking
                     break;
                 case ClientPacketHeader.MEDICAL:
                     ReadMedicalMessage(inc, connectedClient);
+                    break;
+                case ClientPacketHeader.CIRCUITBOX:
+                    ReadCircuitBoxMessage(inc, connectedClient);
                     break;
                 case ClientPacketHeader.READY_CHECK:
                     ReadyCheck.ServerRead(inc, connectedClient);
@@ -1303,6 +1314,22 @@ namespace Barotrauma.Networking
             }
         }
 
+        private static void ReadCircuitBoxMessage(IReadMessage inc, Client sender)
+        {
+            var header = INetSerializableStruct.Read<NetCircuitBoxHeader>(inc);
+
+            INetSerializableStruct data = header.Opcode switch
+            {
+                CircuitBoxOpcode.Cursor => INetSerializableStruct.Read<NetCircuitBoxCursorInfo>(inc),
+                _ => throw new ArgumentOutOfRangeException(nameof(header.Opcode), header.Opcode, "This data cannot be handled using direct network messages.")
+            };
+
+            if (header.FindTarget().TryUnwrap(out var box))
+            {
+                box.ServerRead(data, sender);
+            }
+        }
+
         private void ReadReadyToSpawnMessage(IReadMessage inc, Client sender)
         {
             sender.SpectateOnly = inc.ReadBoolean() && (ServerSettings.AllowSpectating || sender.Connection == OwnerConnection);
@@ -1667,38 +1694,54 @@ namespace Barotrauma.Networking
             //characters or items spawned mid-round don't necessarily exist at the client's end yet
             if (!c.NeedsMidRoundSync)
             {
-                foreach (Character character in Character.CharacterList)
+                Character clientCharacter = c.Character;
+                foreach (Character otherCharacter in Character.CharacterList)
                 {
-                    if (!character.Enabled) { continue; }
+                    if (!otherCharacter.Enabled) { continue; }
                     if (c.SpectatePos == null)
                     {
-                        float distSqr = Vector2.DistanceSquared(character.WorldPosition, c.Character.WorldPosition);
-                        if (c.Character.ViewTarget != null)
+                        //not spectating ->
+                        //  check if the client's character, or the entity they're viewing,
+                        //  is close enough to the other character or the entity the other character is viewing
+                        float distSqr = GetShortestDistance(clientCharacter.WorldPosition, otherCharacter);
+                        if (clientCharacter.ViewTarget != null && clientCharacter.ViewTarget != clientCharacter)
                         {
-                            distSqr = Math.Min(distSqr, Vector2.DistanceSquared(character.WorldPosition, c.Character.ViewTarget.WorldPosition));
+                            distSqr = Math.Min(distSqr, GetShortestDistance(clientCharacter.ViewTarget.WorldPosition, otherCharacter));
                         }
-                        if (distSqr >= MathUtils.Pow2(character.Params.DisableDistance)) { continue; }
+                        if (distSqr >= MathUtils.Pow2(otherCharacter.Params.DisableDistance)) { continue; }
                     }
-                    else
+                    else if (otherCharacter != clientCharacter)
                     {
-                        if (character != c.Character && Vector2.DistanceSquared(character.WorldPosition, c.SpectatePos.Value) >= MathUtils.Pow2(character.Params.DisableDistance))
-                        {
-                            continue;
-                        }
+                        //spectating ->
+                        //  check if the position the client is viewing
+                        //  is close enough to the other character or the entity the other character is viewing
+                        if (GetShortestDistance(c.SpectatePos.Value, otherCharacter) >= MathUtils.Pow2(otherCharacter.Params.DisableDistance)) { continue; }
                     }
 
-                    float updateInterval = character.GetPositionUpdateInterval(c);
-                    c.PositionUpdateLastSent.TryGetValue(character, out float lastSent);
+                    static float GetShortestDistance(Vector2 viewPos, Character targetCharacter)
+                    {
+                        float distSqr = Vector2.DistanceSquared(viewPos, targetCharacter.WorldPosition);
+                        if (targetCharacter.ViewTarget != null && targetCharacter.ViewTarget != targetCharacter)
+                        {
+                            //if the character is viewing something (far-away turret?),
+                            //we might want to send updates about it to the spectating client even though they're far away from the actual character
+                            distSqr = Math.Min(distSqr, Vector2.DistanceSquared(viewPos, targetCharacter.ViewTarget.WorldPosition));
+                        }
+                        return distSqr;
+                    }
+
+                    float updateInterval = otherCharacter.GetPositionUpdateInterval(c);
+                    c.PositionUpdateLastSent.TryGetValue(otherCharacter, out float lastSent);
                     if (lastSent > NetTime.Now)
                     {
                         //sent in the future -> can't be right, remove
-                        c.PositionUpdateLastSent.Remove(character);
+                        c.PositionUpdateLastSent.Remove(otherCharacter);
                     }
                     else
                     {
                         if (lastSent > NetTime.Now - updateInterval) { continue; }
                     }
-                    if (!c.PendingPositionUpdates.Contains(character)) { c.PendingPositionUpdates.Enqueue(character); }
+                    if (!c.PendingPositionUpdates.Contains(otherCharacter)) { c.PendingPositionUpdates.Enqueue(otherCharacter); }
                 }
 
                 foreach (Submarine sub in Submarine.Loaded)
@@ -1763,7 +1806,7 @@ namespace Barotrauma.Networking
                 while (!c.NeedsMidRoundSync && c.PendingPositionUpdates.Count > 0)
                 {
                     var entity = c.PendingPositionUpdates.Peek();
-                    if (!(entity is IServerPositionSync entityPositionSync) ||
+                    if (entity is not IServerPositionSync entityPositionSync ||
                         entity.Removed ||
                         (entity is Item item && float.IsInfinity(item.PositionUpdateInterval)))
                     {
@@ -1945,7 +1988,8 @@ namespace Barotrauma.Networking
 
                     outmsg.WriteBoolean(ServerSettings.AllowSpectating);
 
-                    outmsg.WriteRangedInteger((int)ServerSettings.TraitorsEnabled, 0, 2);
+                    outmsg.WriteSingle(ServerSettings.TraitorProbability);
+                    outmsg.WriteRangedInteger(ServerSettings.TraitorDangerLevel, TraitorEventPrefab.MinDangerLevel, TraitorEventPrefab.MaxDangerLevel);
 
                     outmsg.WriteRangedInteger((int)GameMain.NetLobbyScreen.MissionType, 0, (int)MissionType.All);
 
@@ -2200,6 +2244,7 @@ namespace Barotrauma.Networking
             //don't instantiate a new gamesession if we're playing a campaign
             if (campaign == null || GameMain.GameSession == null)
             {
+                traitorManager = new TraitorManager(this);
                 GameMain.GameSession = new GameSession(selectedSub, "", selectedMode, settings, GameMain.NetLobbyScreen.LevelSeed, missionType: GameMain.NetLobbyScreen.MissionType);
             }
             else
@@ -2497,16 +2542,8 @@ namespace Barotrauma.Networking
                 }
             }
 
-            TraitorManager = null;
-            if (ServerSettings.TraitorsEnabled == YesNoMaybe.Yes ||
-                (ServerSettings.TraitorsEnabled == YesNoMaybe.Maybe && Rand.Range(0.0f, 1.0f) < 0.5f))
-            {
-                if (!(GameMain.GameSession?.GameMode is CampaignMode))
-                {
-                    TraitorManager = new TraitorManager();
-                    TraitorManager.Start(this);
-                }
-            }
+            TraitorManager.Initialize(GameMain.GameSession.EventManager, Level.Loaded);
+            TraitorManager.Enabled = Rand.Range(0.0f, 1.0f) < ServerSettings.TraitorProbability;
 
             GameAnalyticsManager.AddDesignEvent("Traitors:" + (TraitorManager == null ? "Disabled" : "Enabled"));
 
@@ -2550,7 +2587,6 @@ namespace Barotrauma.Networking
             msg.WriteBoolean(ServerSettings.AllowRewiring);
             msg.WriteBoolean(ServerSettings.AllowFriendlyFire);
             msg.WriteBoolean(ServerSettings.LockAllDefaultWires);
-            msg.WriteBoolean(ServerSettings.AllowRagdollButton);
             msg.WriteBoolean(ServerSettings.AllowLinkingWifiToChat);
             msg.WriteInt32(ServerSettings.MaximumMoneyTransferRequest);
             msg.WriteBoolean(IsUsingRespawnShuttle());
@@ -2673,13 +2709,12 @@ namespace Barotrauma.Networking
             }
 
             string endMessage = TextManager.FormatServerMessage("RoundSummaryRoundHasEnded");
-            var traitorResults = TraitorManager?.GetEndResults() ?? new List<TraitorMissionResult>();
-
             List<Mission> missions = GameMain.GameSession.Missions.ToList();
             if (GameMain.GameSession is { IsRunning: true })
             {
-                GameMain.GameSession.EndRound(endMessage, traitorResults);
+                GameMain.GameSession.EndRound(endMessage);
             }
+            TraitorManager.TraitorResults? traitorResults = traitorManager?.GetEndResults() ?? null;
 
             endRoundTimer = 0.0f;
 
@@ -2724,10 +2759,10 @@ namespace Barotrauma.Networking
                 }
                 msg.WriteByte(GameMain.GameSession?.WinningTeam == null ? (byte)0 : (byte)GameMain.GameSession.WinningTeam);
 
-                msg.WriteByte((byte)traitorResults.Count);
-                foreach (var traitorResult in traitorResults)
+                msg.WriteBoolean(traitorResults.HasValue);
+                if (traitorResults.HasValue)
                 {
-                    traitorResult.ServerWrite(msg);
+                    msg.WriteNetSerializableStruct(traitorResults.Value);
                 }
 
                 foreach (Client client in connectedClients)
@@ -2776,13 +2811,14 @@ namespace Barotrauma.Networking
             if (c == null || string.IsNullOrEmpty(newName) || !NetIdUtils.IdMoreRecent(nameId, c.NameId)) { return false; }
 
             var timeSinceNameChange = DateTime.Now - c.LastNameChangeTime;
-            if (timeSinceNameChange < Client.NameChangeCoolDown)
+            if (timeSinceNameChange < Client.NameChangeCoolDown && newName != c.Name)
             {
                 //only send once per second at most to prevent using this for spamming
                 if (timeSinceNameChange.TotalSeconds > 1)
                 {
                     var coolDownRemaining = Client.NameChangeCoolDown - timeSinceNameChange;
                     SendDirectChatMessage($"ServerMessage.NameChangeFailedCooldownActive~[seconds]={(int)coolDownRemaining.TotalSeconds}", c);
+                    LastClientListUpdateID++;
                 }
                 c.NameId = nameId;
                 c.RejectedName = newName;
@@ -3094,7 +3130,7 @@ namespace Barotrauma.Networking
                     default:
                         if (command != "")
                         {
-                            if (command.ToLower() == serverName.ToLower())
+                            if (command.ToLower() == ServerName.ToLower())
                             {
                                 //a private message to the host
                                 if (OwnerConnection != null)
@@ -3149,7 +3185,7 @@ namespace Barotrauma.Networking
                     //msg sent by the server
                     if (senderCharacter == null)
                     {
-                        senderName = serverName;
+                        senderName = ServerName;
                     }
                     else //msg sent by an AI character
                     {
@@ -3183,7 +3219,7 @@ namespace Barotrauma.Networking
                     //msg sent by the server
                     if (senderCharacter == null)
                     {
-                        senderName = serverName;
+                        senderName = ServerName;
                     }
                     else //sent by an AI character, not allowed when the game is not running
                     {
@@ -3406,33 +3442,35 @@ namespace Barotrauma.Networking
             }
         }
 
-        public void SwitchSubmarine()
+        public bool TrySwitchSubmarine()
         {
-            if (Voting.ActiveVote is not Voting.SubmarineVote subVote) { return; }
+            if (Voting.ActiveVote is not Voting.SubmarineVote subVote) { return false; }
 
             SubmarineInfo targetSubmarine = subVote.Sub;
             VoteType voteType = Voting.ActiveVote.VoteType;
             Client starter = Voting.ActiveVote.VoteStarter;
 
+            bool purchaseFailed = false;
             switch (voteType)
             {
                 case VoteType.PurchaseAndSwitchSub:
                 case VoteType.PurchaseSub:
                     // Pay for submarine
-                    GameMain.GameSession.PurchaseSubmarine(targetSubmarine, starter);
+                    purchaseFailed = !GameMain.GameSession.TryPurchaseSubmarine(targetSubmarine, starter);
                     break;
                 case VoteType.SwitchSub:
                     break;
                 default:
-                    return;
+                    return false;
             }
 
-            if (voteType != VoteType.PurchaseSub)
+            if (voteType != VoteType.PurchaseSub && !purchaseFailed)
             {
                 GameMain.GameSession.SwitchSubmarine(targetSubmarine, subVote.TransferItems, starter);
             }
 
-            Voting.StopSubmarineVote(true);
+            Voting.StopSubmarineVote(passed: !purchaseFailed);
+            return !purchaseFailed;
         }
 
         public void UpdateClientPermissions(Client client)
@@ -3544,14 +3582,9 @@ namespace Barotrauma.Networking
             serverPeer.Send(msg, client.Connection, DeliveryMethod.Reliable);
         }
 
-        public void SendTraitorMessage(Client client, string message, Identifier missionIdentifier, TraitorMessageType messageType)
+        public void SendTraitorMessage(WriteOnlyMessage msg, Client client)
         {
-            if (client == null) { return; }
-            var msg = new WriteOnlyMessage();
-            msg.WriteByte((byte)ServerPacketHeader.TRAITOR_MESSAGE);
-            msg.WriteByte((byte)messageType);
-            msg.WriteIdentifier(missionIdentifier);
-            msg.WriteString(message);
+            if (client == null) { return; };
             serverPeer.Send(msg, client.Connection, DeliveryMethod.ReliableOrdered);
         }
 

@@ -294,40 +294,37 @@ namespace Barotrauma
                 throw new Exception($"Generating a campaign map failed (no locations created). Width: {Width}, height: {Height}");
             }
 
-            foreach (Location location in Locations)
-            {
-                if (location.Type.Identifier != "outpost") { continue; }
-                SetStartLocation(location);
-            }
+            FindStartLocation(l => l.Type.Identifier == "outpost");
             //if no outpost was found (using a mod that replaces the outpost location type?), find any type of outpost
             if (CurrentLocation == null)
             {
+                FindStartLocation(l => l.Type.HasOutpost);
+            }
+
+            void FindStartLocation(Func<Location, bool> predicate)
+            {
                 foreach (Location location in Locations)
                 {
-                    if (!location.Type.HasOutpost) { continue; }
-                    SetStartLocation(location);
+                    if (!predicate(location)) { continue; }
+                    if (CurrentLocation == null || location.MapPosition.X < CurrentLocation.MapPosition.X)
+                    {
+                        CurrentLocation = StartLocation = furthestDiscoveredLocation = location;
+                    }
                 }
             }
-            
-            void SetStartLocation(Location location)
+
+            StartLocation.SecondaryFaction = null;             
+            var startOutpostFaction = campaign?.Factions.FirstOrDefault(f => f.Prefab.StartOutpost);
+            if (startOutpostFaction != null)
             {
-                if (CurrentLocation == null || location.MapPosition.X < CurrentLocation.MapPosition.X)
+                StartLocation.Faction = startOutpostFaction;
+                foreach (var connection in StartLocation.Connections)
                 {
-                    CurrentLocation = StartLocation = furthestDiscoveredLocation = location;
-                    StartLocation.SecondaryFaction = null;             
-                    var startOutpostFaction = campaign?.Factions.FirstOrDefault(f => f.Prefab.StartOutpost);
-                    if (startOutpostFaction != null)
+                    var otherLocation = connection.OtherLocation(StartLocation);
+                    if (otherLocation.HasOutpost() && otherLocation.Type.OutpostTeam == CharacterTeamType.FriendlyNPC)
                     {
-                        StartLocation.Faction = startOutpostFaction;
-                        foreach (var connection in StartLocation.Connections)
-                        {
-                            var otherLocation = connection.OtherLocation(StartLocation);
-                            if (otherLocation.HasOutpost() && otherLocation.Type.OutpostTeam == CharacterTeamType.FriendlyNPC)
-                            {
-                                otherLocation.Faction = startOutpostFaction;
-                            }
-                        }
-                    }                    
+                        otherLocation.Faction = startOutpostFaction;
+                    }
                 }
             }
 
@@ -617,13 +614,20 @@ namespace Barotrauma
                         Connections[i].Locations[0].MapPosition.X < Connections[i].Locations[1].MapPosition.X ?
                         Connections[i].Locations[0] :
                         Connections[i].Locations[1];
-                    if (!leftMostLocation.Type.HasOutpost || leftMostLocation.Type.Identifier == "abandoned")
+                    if (!AllowAsBiomeGate(leftMostLocation.Type))
                     {
                         leftMostLocation.ChangeType(
                             campaign,
-                            LocationType.Prefabs.OrderBy(lt => lt.Identifier).First(lt => lt.HasOutpost && lt.Identifier != "abandoned"),
+                            LocationType.Prefabs.OrderBy(lt => lt.Identifier).First(lt => AllowAsBiomeGate(lt)),
                             createStores: false);
                     }
+                    static bool AllowAsBiomeGate(LocationType lt)
+                    {
+                        //checking for "abandoned" is not strictly necessary here because it's now configured to not be allowed as a biome gate
+                        //but might be better to keep it for backwards compatibility (previously we relied only on that check)
+                        return lt.HasOutpost && lt.Identifier != "abandoned" && lt.AllowAsBiomeGate;
+                    }
+
                     leftMostLocation.IsGateBetweenBiomes = true;
                     Connections[i].Locked = true;
 
@@ -787,6 +791,28 @@ namespace Barotrauma
             System.Diagnostics.Debug.Assert(Connections.All(c => c.Biome != null));
         }
 
+        private Location GetPreviousToEndLocation()
+        {
+            Location previousToEndLocation = null;
+            foreach (Location location in Locations)
+            {
+                if (!location.Biome.IsEndBiome && (previousToEndLocation == null || location.MapPosition.X > previousToEndLocation.MapPosition.X))
+                {
+                    previousToEndLocation = location;
+                }
+            }
+            return previousToEndLocation;
+        }
+
+        private void ForceLocationTypeToNone(CampaignMode campaign, Location location)
+        {
+            if (LocationType.Prefabs.TryGet("none", out LocationType locationType))
+            {
+                location.ChangeType(campaign, locationType, createStores: false);
+            }
+            location.DisallowLocationTypeChanges = true;
+        }
+
         private void CreateEndLocation(CampaignMode campaign)
         {
             float zoneWidth = Width / generationParams.DifficultyZones;
@@ -803,15 +829,7 @@ namespace Barotrauma
                 }
             }
 
-            Location previousToEndLocation = null;
-            foreach (Location location in Locations)
-            {
-                if (!location.Biome.IsEndBiome && (previousToEndLocation == null || location.MapPosition.X > previousToEndLocation.MapPosition.X))
-                {
-                    previousToEndLocation = location;
-                }
-            }
-
+            var previousToEndLocation = GetPreviousToEndLocation();
             if (endLocation == null || previousToEndLocation == null) { return; }
 
             endLocations = new List<Location>() { endLocation };
@@ -836,10 +854,7 @@ namespace Barotrauma
                 }
             }
 
-            if (LocationType.Prefabs.TryGet("none", out LocationType locationType))
-            {
-                previousToEndLocation.ChangeType(campaign, locationType, createStores: false);
-            }
+            ForceLocationTypeToNone(campaign, previousToEndLocation);
 
             //remove all locations from the end biome except the end location
             for (int i = Locations.Count - 1; i >= 0; i--)
@@ -1558,6 +1573,7 @@ namespace Barotrauma
                     if (index < 0) { return null; }
                     return Locations[index];
                 }
+
             }
 
             void Discover(Location location)
@@ -1606,6 +1622,12 @@ namespace Barotrauma
                     DebugConsole.AddWarning($"Error while loading campaign map state. Submarine in a location with no outpost ({CurrentLocation.Name}). Loading the first adjacent connection...");
                     SelectLocation(CurrentLocation.Connections[0].OtherLocation(CurrentLocation));
                 }
+            }
+
+            var previousToEndLocation = GetPreviousToEndLocation();
+            if (previousToEndLocation != null)
+            {
+                ForceLocationTypeToNone(campaign, previousToEndLocation);
             }
         }
 

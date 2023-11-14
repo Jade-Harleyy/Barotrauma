@@ -88,20 +88,21 @@ namespace Barotrauma
         public static TextManager.SpeciallyHandledCharCategory ExtractShccFromXElement(XElement element)
             => TextManager.SpeciallyHandledCharCategories
                 .Where(category => element.GetAttributeBool($"is{category}", category switch {
-                    // CJK isn't supported by default
+                    // CJK and Japanese aren't supported by default
                     TextManager.SpeciallyHandledCharCategory.CJK => false,
-                    
+                    TextManager.SpeciallyHandledCharCategory.Japanese => false,
+
                     // For backwards compatibility, we assume that Cyrillic is supported by default
                     TextManager.SpeciallyHandledCharCategory.Cyrillic => true,
                     
-                    _ => throw new Exception("unreachable")
+                    _ => throw new NotImplementedException($"nameof{category} not implemented.")
                 }))
                 .Aggregate(TextManager.SpeciallyHandledCharCategory.None, (current, category) => current | category);
 
-        public ScalableFont(ContentXElement element, GraphicsDevice gd = null)
+        public ScalableFont(ContentXElement element, uint defaultSize = 14, GraphicsDevice gd = null)
             : this(
                 element.GetAttributeContentPath("file")?.Value,
-                (uint)element.GetAttributeInt("size", 14),
+                (uint)element.GetAttributeInt("size", (int)defaultSize),
                 gd,
                 element.GetAttributeBool("dynamicloading", false),
                 ExtractShccFromXElement(element))

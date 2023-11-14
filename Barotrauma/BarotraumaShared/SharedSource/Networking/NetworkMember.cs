@@ -35,6 +35,7 @@ namespace Barotrauma.Networking
         MEDICAL,         //medical clinic
         TRANSFER_MONEY,      // wallet transfers
         REWARD_DISTRIBUTION, // wallet reward distribution
+        CIRCUITBOX,
         READY_CHECK,
         READY_TO_SPAWN
     }
@@ -80,11 +81,12 @@ namespace Barotrauma.Networking
         STARTGAMEFINALIZE,  //finalize round initialization
         ENDGAME,
 
-        TRAITOR_MESSAGE,
         MISSION,
         EVENTACTION,
+        TRAITOR_MESSAGE,
         CREW,               //anything related to managing bots in multiplayer
         MEDICAL,            //medical clinic
+        CIRCUITBOX,
         MONEY,
         READY_CHECK         //start, end and update a ready check
     }
@@ -112,14 +114,6 @@ namespace Barotrauma.Networking
                 EntityId: entity.ID);
     }
 
-    enum TraitorMessageType
-    {
-        Server,
-        ServerMessageBox,
-        Objective,
-        Console
-    }
-
     enum VoteType
     {
         Unknown,
@@ -131,7 +125,8 @@ namespace Barotrauma.Networking
         PurchaseAndSwitchSub,
         PurchaseSub,
         SwitchSub,
-        TransferMoney
+        TransferMoney,
+        Traitor,
     }
 
     public enum ReadyCheckState
@@ -207,19 +202,6 @@ namespace Barotrauma.Networking
         public ServerSettings ServerSettings { get; protected set; }
         
         public TimeSpan UpdateInterval => new TimeSpan(0, 0, 0, 0, MathHelper.Clamp(1000 / ServerSettings.TickRate, 1, 500));
-
-
-        public bool CanUseRadio(Character sender)
-        {
-            if (sender == null) { return false; }
-
-            var radio = sender.Inventory.AllItems.FirstOrDefault(i => i.GetComponent<WifiComponent>() != null);
-            if (radio == null || !sender.HasEquippedItem(radio)) { return false; }
-
-            var radioComponent = radio.GetComponent<WifiComponent>();
-            if (radioComponent == null) { return false; }
-            return radioComponent.HasRequiredContainedItems(sender, addMessage: false);
-        }
 
         public void AddChatMessage(string message, ChatMessageType type, string senderName = "", Client senderClient = null, Character senderCharacter = null, PlayerConnectionChangeType changeType = PlayerConnectionChangeType.None, Color? textColor = null)
         {

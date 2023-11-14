@@ -1,12 +1,11 @@
 #nullable enable
+using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Reflection.Metadata.Ecma335;
 using System.Xml.Linq;
-using Microsoft.Xna.Framework;
 
 namespace Barotrauma
 {
@@ -53,7 +52,7 @@ namespace Barotrauma
             => Element.Descendants().Select(e => new ContentXElement(ContentPackage, e));
 
         public IEnumerable<ContentXElement> GetChildElements(string name)
-            => Elements().Where(e => string.Equals(name, e.Name.LocalName, StringComparison.InvariantCultureIgnoreCase));
+            => Elements().Where(e => string.Equals(name, e.Name.LocalName, StringComparison.OrdinalIgnoreCase));
 
         public XAttribute? GetAttribute(string name) => Element.GetAttribute(name);
         
@@ -64,14 +63,20 @@ namespace Barotrauma
 
         public Identifier GetAttributeIdentifier(string key, string def) => Element.GetAttributeIdentifier(key, def);
         public Identifier GetAttributeIdentifier(string key, Identifier def) => Element.GetAttributeIdentifier(key, def);
-        public Identifier[]? GetAttributeIdentifierArray(string key, Identifier[] def, bool trim = true) => Element.GetAttributeIdentifierArray(key, def, trim);
-        [return:NotNullIfNotNull("def")]
-        public ImmutableHashSet<Identifier>? GetAttributeIdentifierImmutableHashSet(string key, ImmutableHashSet<Identifier>? def, bool trim = true) => Element.GetAttributeIdentifierImmutableHashSet(key, def, trim);
+
+        [return: NotNullIfNotNull("def")]
+        public Identifier[] GetAttributeIdentifierArray(Identifier[] def, params string[] keys) => Element.GetAttributeIdentifierArray(def, keys);
+        [return: NotNullIfNotNull("def")]
+        public Identifier[] GetAttributeIdentifierArray(string key, Identifier[] def, bool trim = true) => Element.GetAttributeIdentifierArray(key, def, trim);
+        [return: NotNullIfNotNull("def")]
+        public ImmutableHashSet<Identifier> GetAttributeIdentifierImmutableHashSet(string key, ImmutableHashSet<Identifier>? def, bool trim = true) => Element.GetAttributeIdentifierImmutableHashSet(key, def, trim);
+        
         public string? GetAttributeString(string key, string? def) => Element.GetAttributeString(key, def);
         public string GetAttributeStringUnrestricted(string key, string def) => Element.GetAttributeStringUnrestricted(key, def);
         public string[]? GetAttributeStringArray(string key, string[]? def, bool convertToLowerInvariant = false) => Element.GetAttributeStringArray(key, def, convertToLowerInvariant);
         public ContentPath? GetAttributeContentPath(string key) => Element.GetAttributeContentPath(key, ContentPackage);
         public int GetAttributeInt(string key, int def) => Element.GetAttributeInt(key, def);
+        public ushort GetAttributeUInt16(string key, ushort def) => Element.GetAttributeUInt16(key, def);
         public int[]? GetAttributeIntArray(string key, int[]? def) => Element.GetAttributeIntArray(key, def);
         public ushort[]? GetAttributeUshortArray(string key, ushort[]? def) => Element.GetAttributeUshortArray(key, def);
         public float GetAttributeFloat(string key, float def) => Element.GetAttributeFloat(key, def);

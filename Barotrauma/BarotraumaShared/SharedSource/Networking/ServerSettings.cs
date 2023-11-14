@@ -15,11 +15,6 @@ namespace Barotrauma.Networking
         Manual = 0, Random = 1, Vote = 2
     }
 
-    public enum YesNoMaybe
-    {
-        No = 0, Maybe = 1, Yes = 2
-    }
-
     public enum BotSpawnMode
     {
         Normal, Fill
@@ -43,8 +38,8 @@ namespace Barotrauma.Networking
     partial class ServerSettings : ISerializableEntity
     {
         public const int PacketLimitMin = 1200,
-                         PacketLimitWarning = 2400,
-                         PacketLimitDefault = 3000,
+                         PacketLimitWarning = 3500,
+                         PacketLimitDefault = 4000,
                          PacketLimitMax = 10000;
 
         public const string SettingsFile = "serversettings.xml";
@@ -392,8 +387,10 @@ namespace Barotrauma.Networking
             set;
         }
 
-        private int tickRate = 20;
-        [Serialize(20, IsPropertySaveable.Yes)]
+        public const int DefaultTickRate = 20;
+
+        private int tickRate = DefaultTickRate;
+        [Serialize(DefaultTickRate, IsPropertySaveable.Yes)]
         public int TickRate
         {
             get { return tickRate; }
@@ -430,6 +427,16 @@ namespace Barotrauma.Networking
 
         [Serialize(0.2f, IsPropertySaveable.Yes)]
         public float MinRespawnRatio
+        {
+            get;
+            private set;
+        }
+
+        [Serialize(50f, IsPropertySaveable.Yes)]
+        /// <summary>
+        /// How much skills drop towards the job's default skill levels when dying
+        /// </summary>
+        public float SkillLossPercentageOnDeath
         {
             get;
             private set;
@@ -484,13 +491,6 @@ namespace Barotrauma.Networking
         } = true;
 
         [Serialize(true, IsPropertySaveable.Yes)]
-        public bool AllowRagdollButton
-        {
-            get;
-            set;
-        }
-
-        [Serialize(true, IsPropertySaveable.Yes)]
         public bool AllowFileTransfers
         {
             get;
@@ -522,7 +522,7 @@ namespace Barotrauma.Networking
             }
         }
 
-        [Serialize(LosMode.Opaque, IsPropertySaveable.Yes)]
+        [Serialize(LosMode.Transparent, IsPropertySaveable.Yes)]
         public LosMode LosMode
         {
             get;
@@ -720,19 +720,33 @@ namespace Barotrauma.Networking
             set;
         }
 
-        private YesNoMaybe traitorsEnabled;
-        [Serialize(YesNoMaybe.No, IsPropertySaveable.Yes)]
-        public YesNoMaybe TraitorsEnabled
+        private float traitorProbability;
+        [Serialize(0.0f, IsPropertySaveable.Yes)]
+        public float TraitorProbability
         {
-            get { return traitorsEnabled; }
+            get { return traitorProbability; }
             set
             {
-                if (traitorsEnabled == value) { return; }
-                traitorsEnabled = value;
+                if (MathUtils.NearlyEqual(traitorProbability, value)) { return; }
+                traitorProbability = MathHelper.Clamp(value, 0.0f, 1.0f);
                 ServerDetailsChanged = true;
             }
         }
 
+
+        private int traitorDangerLevel;
+        [Serialize(TraitorEventPrefab.MinDangerLevel, IsPropertySaveable.Yes)]
+        public int TraitorDangerLevel
+        {
+            get { return traitorDangerLevel; }
+            set
+            {
+                int clampedValue = MathHelper.Clamp(value, TraitorEventPrefab.MinDangerLevel, TraitorEventPrefab.MaxDangerLevel);
+                if (traitorDangerLevel == clampedValue) { return; }
+                traitorDangerLevel = clampedValue;
+                ServerDetailsChanged = true;
+            }
+        }
         [Serialize(defaultValue: 1, isSaveable: IsPropertySaveable.Yes)]
         public int TraitorsMinPlayerCount
         {
@@ -740,34 +754,13 @@ namespace Barotrauma.Networking
             set;
         }
 
-        [Serialize(defaultValue: 90.0f, isSaveable: IsPropertySaveable.Yes)]
-        public float TraitorsMinStartDelay
+        [Serialize(defaultValue: 50.0f, isSaveable: IsPropertySaveable.Yes)]
+        public float MinPercentageOfPlayersForTraitorAccusation
         {
             get;
             set;
         }
 
-        [Serialize(defaultValue: 180.0f, isSaveable: IsPropertySaveable.Yes)]
-        public float TraitorsMaxStartDelay
-        {
-            get;
-            set;
-        }
-
-        [Serialize(defaultValue: 30.0f, isSaveable: IsPropertySaveable.Yes)]
-        public float TraitorsMinRestartDelay
-        {
-            get;
-            set;
-        }
-
-        [Serialize(defaultValue: 90.0f, isSaveable: IsPropertySaveable.Yes)]
-        public float TraitorsMaxRestartDelay
-        {
-            get;
-            set;
-        }
-        
         [Serialize(defaultValue: "", IsPropertySaveable.Yes)]
         public LanguageIdentifier Language { get; set; }
 

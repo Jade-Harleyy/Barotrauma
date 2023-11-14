@@ -27,6 +27,7 @@ namespace Barotrauma
 
             foreach (var npc in affectedNpcs)
             {
+                if (npc.Removed) { continue; }
                 if (npc.AIController is not HumanAIController humanAiController) { continue; }
 
                 if (Wait)
@@ -35,7 +36,9 @@ namespace Barotrauma
                         AIObjectiveGoTo.GetTargetHull(npc) as ISpatialEntity ?? npc, npc, humanAiController.ObjectiveManager, repeat: true)
                     {
                         OverridePriority = 100.0f,
-                        SourceEventAction = this
+                        SourceEventAction = this,
+                        IsWaitOrder = true,
+                        CloseEnough = 100
                     };
                     humanAiController.ObjectiveManager.AddObjective(gotoObjective);
                     humanAiController.ObjectiveManager.WaitTimer = 0.0f;

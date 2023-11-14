@@ -15,6 +15,7 @@ namespace Barotrauma.Lights
 
         public bool Persistent;
 
+
         public Dictionary<Identifier, SerializableProperty> SerializableProperties { get; private set; } = new Dictionary<Identifier, SerializableProperty>();
 
         [Serialize("1.0,1.0,1.0,1.0", IsPropertySaveable.Yes, alwaysUseInstanceValues: true), Editable]
@@ -51,6 +52,10 @@ namespace Barotrauma.Lights
 
         [Serialize(0f, IsPropertySaveable.Yes), Editable(MinValueFloat = -360, MaxValueFloat = 360, ValueStep = 1, DecimalCount = 0)]
         public float Rotation { get; set; }
+
+        [Serialize(false, IsPropertySaveable.Yes, "Directional lights only shine in \"one direction\", meaning no shadows are cast behind them."+
+            " Note that this does not affect how the light texture is drawn: if you want something like a conical spotlight, you should use an appropriate texture for that.")]
+        public bool Directional { get; set; }
 
         public Vector2 GetOffset() => Vector2.Transform(Offset, Matrix.CreateRotationZ(MathHelper.ToRadians(Rotation)));
 
@@ -205,6 +210,8 @@ namespace Barotrauma.Lights
 
         private readonly List<ConvexHullList> convexHullsInRange;
 
+        private readonly HashSet<ConvexHull> visibleConvexHulls = new HashSet<ConvexHull>();
+
         public Texture2D texture;
 
         public SpriteEffects LightSpriteEffect;
@@ -228,6 +235,7 @@ namespace Barotrauma.Lights
 
         //do we need to recalculate the vertices of the light volume
         private bool needsRecalculation;
+        private bool needsRecalculationWhenUpToDate;
         public bool NeedsRecalculation
         {
             get { return needsRecalculation; }
@@ -241,11 +249,29 @@ namespace Barotrauma.Lights
                     }
                 }
                 needsRecalculation = value;
+                if (needsRecalculation && state != LightVertexState.UpToDate)
+                {
+                    //if we're currently recalculating light vertices, mark that we need to recalculate them again after it's done
+                    needsRecalculationWhenUpToDate = true;
+                }
             }
         }
 
+
         //when were the vertices of the light volume last calculated
         public float LastRecalculationTime { get; private set; }
+
+
+        private enum LightVertexState
+        {
+            UpToDate,
+            PendingRayCasts,
+            PendingVertexRecalculation,
+        }
+
+        private LightVertexState state;
+
+        private Vector2 calculatedDrawPos;
 
         private readonly Dictionary<Submarine, Vector2> diffToSub;
 
@@ -255,7 +281,6 @@ namespace Barotrauma.Lights
         private int indexCount;
 
         private Vector2 translateVertices;
-        private float rotateVertices;
 
         private readonly LightSourceParams lightSourceParams;
 
@@ -293,9 +318,10 @@ namespace Barotrauma.Lights
                 if (Math.Abs(value - rotation) < 0.001f) { return; }
                 rotation = value;
 
+                dir = new Vector2(MathF.Cos(rotation), -MathF.Sin(rotation));
+
                 if (Math.Abs(rotation - prevCalculatedRotation) < RotationRecalculationThreshold && vertices != null)
                 {
-                    rotateVertices = rotation - prevCalculatedRotation;
                     return;
                 }
 
@@ -303,6 +329,8 @@ namespace Barotrauma.Lights
                 NeedsRecalculation = true;
             }
         }
+
+        private Vector2 dir = Vector2.UnitX;
 
         private Vector2 _spriteScale = Vector2.One;
 
@@ -427,7 +455,7 @@ namespace Barotrauma.Lights
         public bool Enabled = true;
 
         private readonly ISerializableEntity conditionalTarget;
-        private readonly PropertyConditional.Comparison comparison;
+        private readonly PropertyConditional.LogicalOperatorType logicalOperator;
         private readonly List<PropertyConditional> conditionals = new List<PropertyConditional>();
 
         public LightSource(ContentXElement element, ISerializableEntity conditionalTarget = null)
@@ -435,11 +463,7 @@ namespace Barotrauma.Lights
         {
             lightSourceParams = new LightSourceParams(element);
             CastShadows = element.GetAttributeBool("castshadows", true);
-            string comparison = element.GetAttributeString("comparison", null);
-            if (comparison != null)
-            {
-                Enum.TryParse(comparison, ignoreCase: true, out this.comparison);
-            }
+            logicalOperator = element.GetAttributeEnum("comparison", logicalOperator);
 
             if (lightSourceParams.DeformableLightSpriteElement != null)
             {
@@ -452,13 +476,7 @@ namespace Barotrauma.Lights
                 switch (subElement.Name.ToString().ToLowerInvariant())
                 {
                     case "conditional":
-                        foreach (XAttribute attribute in subElement.Attributes())
-                        {
-                            if (PropertyConditional.IsValid(attribute))
-                            {
-                                conditionals.Add(new PropertyConditional(attribute));
-                            }
-                        }
+                        conditionals.AddRange(PropertyConditional.FromXElement(subElement));
                         break;
                 }
             }
@@ -521,11 +539,32 @@ namespace Barotrauma.Lights
             var fullChList = ConvexHull.HullLists.FirstOrDefault(chList => chList.Submarine == sub);
             if (fullChList == null) { return; }
 
+            //used to check whether the lightsource hits the target hull if the light is directional
+            Vector2 ray = new Vector2(dir.X, -dir.Y) * TextureRange;
+            Vector2 normal = new Vector2(-ray.Y, ray.X);
+
             chList.List.Clear();
             foreach (var convexHull in fullChList.List)
             {
                 if (!convexHull.Enabled) { continue; }
                 if (!MathUtils.CircleIntersectsRectangle(lightPos, TextureRange, convexHull.BoundingBox)) { continue; }
+                if (lightSourceParams.Directional)
+                {
+                    Rectangle bounds = convexHull.BoundingBox;
+                    //invert because GetLineRectangleIntersection uses the messed up rects that start from top-left
+                    bounds.Y -= bounds.Height;
+
+                    //the ray can't hit if
+                    //  center is in the opposite direction from the ray (cheapest check first)
+                    if (Vector2.Dot(ray, convexHull.BoundingBox.Center.ToVector2() - lightPos) <= 0 &&
+                        /*ray doesn't hit the convex hull*/
+                        !MathUtils.GetLineRectangleIntersection(lightPos, lightPos + ray, bounds, out _) &&
+                        /*normal vectors of the ray don't hit the convex hull */
+                        !MathUtils.GetLineRectangleIntersection(lightPos + normal, lightPos - normal, bounds, out _))
+                    {
+                        continue;
+                    }
+                }
                 chList.List.Add(convexHull);
             }
             chList.IsHidden.RemoveWhere(ch => !chList.List.Contains(ch));
@@ -647,13 +686,19 @@ namespace Barotrauma.Lights
             }            
         }
 
-        private static readonly List<Segment> visibleSegments = new List<Segment>();
-        private static readonly List<SegmentPoint> points = new List<SegmentPoint>();
-        private static readonly List<Vector2> output = new List<Vector2>();
-        private static readonly SegmentPoint[] boundaryCorners = new SegmentPoint[4];
-        private List<Vector2> FindRaycastHits()
+        private static readonly object mutex = new object();
+
+        private readonly List<Segment> visibleSegments = new List<Segment>();
+        private readonly List<SegmentPoint> points = new List<SegmentPoint>();
+        private readonly List<Vector2> verts = new List<Vector2>();
+        private readonly SegmentPoint[] boundaryCorners = new SegmentPoint[4];
+        private void FindRaycastHits()
         {
-            if (!CastShadows || Range < 1.0f || Color.A < 1) { return null; }
+            if (!CastShadows || Range < 1.0f || Color.A < 1) 
+            {
+                state = LightVertexState.PendingVertexRecalculation;
+                return;            
+            }
 
             Vector2 drawPos = position;
             if (ParentSub != null) { drawPos += ParentSub.DrawPosition; }
@@ -666,8 +711,18 @@ namespace Barotrauma.Lights
                     if (!chList.IsHidden.Contains(hull)) 
                     {
                         //find convexhull segments that are close enough and facing towards the light source
-                        hull.RefreshWorldPositions();
-                        hull.GetVisibleSegments(drawPos, visibleSegments, ignoreEdges: false);                  
+                        lock (mutex)
+                        {
+                            hull.RefreshWorldPositions();
+                            hull.GetVisibleSegments(drawPos, visibleSegments);    
+                            foreach (var visibleSegment in visibleSegments)
+                            {
+                                if (visibleSegment.ConvexHull?.ParentEntity?.Submarine != null)
+                                {
+                                    visibleSegment.SubmarineDrawPos = visibleSegment.ConvexHull.ParentEntity.Submarine.DrawPosition;
+                                }
+                            }
+                        }
                     }
                 }
                 foreach (ConvexHull hull in chList.List)
@@ -676,17 +731,21 @@ namespace Barotrauma.Lights
                 }
             }
 
-            //add a square-shaped boundary to make sure we've got something to construct the triangles from
-            //even if there aren't enough hull segments around the light source
+            state = LightVertexState.PendingRayCasts;
+            GameMain.LightManager.AddRayCastTask(this, drawPos, rotation);
+        }
 
-            //(might be more effective to calculate if we actually need these extra points)
+
+        public void RayCastTask(Vector2 drawPos, float rotation)
+        {
+            visibleConvexHulls.Clear();
 
             Vector2 drawOffset = Vector2.Zero;
             float boundsExtended = TextureRange;
             if (OverrideLightTexture != null)
             {
-                float cosAngle = (float)Math.Cos(Rotation);
-                float sinAngle = -(float)Math.Sin(Rotation);
+                float cosAngle = (float)Math.Cos(rotation);
+                float sinAngle = -(float)Math.Sin(rotation);
 
                 var overrideTextureDims = new Vector2(OverrideLightTexture.SourceRect.Width, OverrideLightTexture.SourceRect.Height);
 
@@ -706,6 +765,10 @@ namespace Barotrauma.Lights
                 drawOffset.Y = origin.X * sinAngle + origin.Y * cosAngle;
             }
 
+            //add a square-shaped boundary to make sure we've got something to construct the triangles from
+            //even if there aren't enough hull segments around the light source
+
+            //(might be more effective to calculate if we actually need these extra points)
             Vector2 boundsMin = drawPos + drawOffset + new Vector2(-boundsExtended, -boundsExtended);
             Vector2 boundsMax = drawPos + drawOffset + new Vector2(boundsExtended, boundsExtended);
             boundaryCorners[0] = new SegmentPoint(boundsMax, null);
@@ -719,197 +782,194 @@ namespace Barotrauma.Lights
                 visibleSegments.Add(s);
             }
 
-            //Generate new points at the intersections between segments
-            //This is necessary for the light volume to generate properly on some subs
-            for (int i = 0; i < visibleSegments.Count; i++)
+            lock (mutex)
             {
-                Vector2 p1a = visibleSegments[i].Start.WorldPos;
-                Vector2 p1b = visibleSegments[i].End.WorldPos;
-
-                for (int j = i + 1; j < visibleSegments.Count; j++)
+                //Generate new points at the intersections between segments
+                //This is necessary for the light volume to generate properly on some subs
+                for (int i = 0; i < visibleSegments.Count; i++)
                 {
-                    //ignore intersections between parallel axis-aligned segments
-                    if (visibleSegments[i].IsAxisAligned && visibleSegments[j].IsAxisAligned &&
-                        visibleSegments[i].IsHorizontal == visibleSegments[j].IsHorizontal)
-                    {
-                        continue;
-                    }
+                    Vector2 p1a = visibleSegments[i].Start.WorldPos;
+                    Vector2 p1b = visibleSegments[i].End.WorldPos;
 
-                    Vector2 p2a = visibleSegments[j].Start.WorldPos;
-                    Vector2 p2b = visibleSegments[j].End.WorldPos;
-
-                    if (Vector2.DistanceSquared(p1a, p2a) < 5.0f ||
-                        Vector2.DistanceSquared(p1a, p2b) < 5.0f ||
-                        Vector2.DistanceSquared(p1b, p2a) < 5.0f ||
-                        Vector2.DistanceSquared(p1b, p2b) < 5.0f)
+                    for (int j = i + 1; j < visibleSegments.Count; j++)
                     {
-                        continue;
-                    }
-
-                    bool intersects;
-                    Vector2 intersection = Vector2.Zero;
-                    if (visibleSegments[i].IsAxisAligned)
-                    {
-                        intersects = MathUtils.GetAxisAlignedLineIntersection(p2a, p2b, p1a, p1b, visibleSegments[i].IsHorizontal, out intersection);
-                    }
-                    else if (visibleSegments[j].IsAxisAligned)
-                    {
-                        intersects = MathUtils.GetAxisAlignedLineIntersection(p1a, p1b, p2a, p2b, visibleSegments[j].IsHorizontal, out intersection);
-                    }
-                    else
-                    {
-                        intersects = MathUtils.GetLineIntersection(p1a, p1b, p2a, p2b, out intersection);
-                    }
-
-                    if (intersects)
-                    {
-                        SegmentPoint start = visibleSegments[i].Start;
-                        SegmentPoint end = visibleSegments[i].End;
-                        SegmentPoint mid = new SegmentPoint(intersection, null);
-                        if (visibleSegments[i].ConvexHull?.ParentEntity?.Submarine != null)
-                        {
-                            mid.Pos -= visibleSegments[i].ConvexHull.ParentEntity.Submarine.DrawPosition;
-                        }
-
-                        if (Vector2.DistanceSquared(start.WorldPos, mid.WorldPos) < 5.0f ||
-                            Vector2.DistanceSquared(end.WorldPos, mid.WorldPos) < 5.0f)
+                        //ignore intersections between parallel axis-aligned segments
+                        if (visibleSegments[i].IsAxisAligned && visibleSegments[j].IsAxisAligned &&
+                            visibleSegments[i].IsHorizontal == visibleSegments[j].IsHorizontal)
                         {
                             continue;
                         }
 
-                        Segment seg1 = new Segment(start, mid, visibleSegments[i].ConvexHull)
-                        {
-                            IsHorizontal = visibleSegments[i].IsHorizontal,
-                        };
+                        Vector2 p2a = visibleSegments[j].Start.WorldPos;
+                        Vector2 p2b = visibleSegments[j].End.WorldPos;
 
-                        Segment seg2 = new Segment(mid, end, visibleSegments[i].ConvexHull)
+                        if (Vector2.DistanceSquared(p1a, p2a) < 5.0f ||
+                            Vector2.DistanceSquared(p1a, p2b) < 5.0f ||
+                            Vector2.DistanceSquared(p1b, p2a) < 5.0f ||
+                            Vector2.DistanceSquared(p1b, p2b) < 5.0f)
                         {
-                            IsHorizontal = visibleSegments[i].IsHorizontal
-                        };
+                            continue;
+                        }
 
-                        visibleSegments[i] = seg1;
-                        visibleSegments.Insert(i + 1, seg2);
+                        bool intersects;
+                        Vector2 intersection = Vector2.Zero;
+                        if (visibleSegments[i].IsAxisAligned)
+                        {
+                            intersects = MathUtils.GetAxisAlignedLineIntersection(p2a, p2b, p1a, p1b, visibleSegments[i].IsHorizontal, out intersection);
+                        }
+                        else if (visibleSegments[j].IsAxisAligned)
+                        {
+                            intersects = MathUtils.GetAxisAlignedLineIntersection(p1a, p1b, p2a, p2b, visibleSegments[j].IsHorizontal, out intersection);
+                        }
+                        else
+                        {
+                            intersects = MathUtils.GetLineSegmentIntersection(p1a, p1b, p2a, p2b, out intersection);
+                        }
+
+                        if (intersects)
+                        {
+                            SegmentPoint start = visibleSegments[i].Start;
+                            SegmentPoint end = visibleSegments[i].End;
+                            SegmentPoint mid = new SegmentPoint(intersection, null);
+                            mid.Pos -= visibleSegments[i].SubmarineDrawPos;
+
+                            if (Vector2.DistanceSquared(start.WorldPos, mid.WorldPos) < 5.0f ||
+                                Vector2.DistanceSquared(end.WorldPos, mid.WorldPos) < 5.0f)
+                            {
+                                continue;
+                            }
+
+                            Segment seg1 = new Segment(start, mid, visibleSegments[i].ConvexHull)
+                            {
+                                IsHorizontal = visibleSegments[i].IsHorizontal,
+                            };
+
+                            Segment seg2 = new Segment(mid, end, visibleSegments[i].ConvexHull)
+                            {
+                                IsHorizontal = visibleSegments[i].IsHorizontal
+                            };
+
+                            visibleSegments[i] = seg1;
+                            visibleSegments.Insert(i + 1, seg2);
+                            i--;
+                            break;
+                        }
+                    }
+                }
+
+                points.Clear();
+                //remove segments that fall out of bounds
+                for (int i = 0; i < visibleSegments.Count; i++)
+                {
+                    Segment s = visibleSegments[i];
+                    if (Math.Abs(s.Start.WorldPos.X - drawPos.X - drawOffset.X) > boundsExtended + 1.0f ||
+                        Math.Abs(s.Start.WorldPos.Y - drawPos.Y - drawOffset.Y) > boundsExtended + 1.0f ||
+                        Math.Abs(s.End.WorldPos.X - drawPos.X - drawOffset.X) > boundsExtended + 1.0f ||
+                        Math.Abs(s.End.WorldPos.Y - drawPos.Y - drawOffset.Y) > boundsExtended + 1.0f)
+                    {
+                        visibleSegments.RemoveAt(i);
                         i--;
-                        break;
+                    }
+                    else
+                    {
+                        points.Add(s.Start);
+                        points.Add(s.End);
                     }
                 }
-            }
 
-            points.Clear();
-            //remove segments that fall out of bounds
-            for (int i = 0; i < visibleSegments.Count; i++)
-            {
-                Segment s = visibleSegments[i];
-                if (Math.Abs(s.Start.WorldPos.X - drawPos.X - drawOffset.X) > boundsExtended + 1.0f ||
-                    Math.Abs(s.Start.WorldPos.Y - drawPos.Y - drawOffset.Y) > boundsExtended + 1.0f ||
-                    Math.Abs(s.End.WorldPos.X - drawPos.X - drawOffset.X) > boundsExtended + 1.0f ||
-                    Math.Abs(s.End.WorldPos.Y - drawPos.Y - drawOffset.Y) > boundsExtended + 1.0f)
+                const float MinPointDistance = 6;
+
+                //remove points that are very close to each other
+                for (int i = 0; i < points.Count; i++)
                 {
-                    visibleSegments.RemoveAt(i);
-                    i--;
+                    for (int j = Math.Min(i + 4, points.Count - 1); j > i; j--)
+                    {
+                        if (Math.Abs(points[i].WorldPos.X - points[j].WorldPos.X) < MinPointDistance &&
+                            Math.Abs(points[i].WorldPos.Y - points[j].WorldPos.Y) < MinPointDistance)
+                        {
+                            points.RemoveAt(j);
+                        }
+                    }
                 }
-                else
+
+                var compareCCW = new CompareSegmentPointCW(drawPos);
+                try
                 {
-                    points.Add(s.Start);
-                    points.Add(s.End);
+                    points.Sort(compareCCW);
                 }
-            }
+                catch (Exception e)
+                {
+                    StringBuilder sb = new StringBuilder("Constructing light volumes failed! Light pos: " + drawPos + ", Hull verts:\n");
+                    foreach (SegmentPoint sp in points)
+                    {
+                        sb.AppendLine(sp.Pos.ToString());
+                    }
+                    DebugConsole.ThrowError(sb.ToString(), e);
+                }
+
+                visibleSegments.Sort((s1, s2) =>
+                    MathUtils.LineToPointDistanceSquared(s1.Start.WorldPos, s1.End.WorldPos, drawPos)
+                    .CompareTo(MathUtils.LineToPointDistanceSquared(s2.Start.WorldPos, s2.End.WorldPos, drawPos)));
+
+                verts.Clear();
+                foreach (SegmentPoint p in points)
+                {
+                    Vector2 dir = Vector2.Normalize(p.WorldPos - drawPos);
+                    Vector2 dirNormal = new Vector2(-dir.Y, dir.X) * MinPointDistance;
+
+                    //do two slightly offset raycasts to hit the segment itself and whatever's behind it
+                    var intersection1 = RayCast(drawPos, drawPos + dir * boundsExtended * 2 - dirNormal, visibleSegments);
+                    if (intersection1.index < 0) { return; }
+                    var intersection2 = RayCast(drawPos, drawPos + dir * boundsExtended * 2 + dirNormal, visibleSegments);
+                    if (intersection2.index < 0) { return; }
+
+                    Segment seg1 = visibleSegments[intersection1.index];
+                    Segment seg2 = visibleSegments[intersection2.index];
+
+                    bool isPoint1 = MathUtils.LineToPointDistanceSquared(seg1.Start.WorldPos, seg1.End.WorldPos, p.WorldPos) < 25.0f;
+                    bool isPoint2 = MathUtils.LineToPointDistanceSquared(seg2.Start.WorldPos, seg2.End.WorldPos, p.WorldPos) < 25.0f;
+
+                    bool markAsVisible = false;
+                    if (isPoint1 && isPoint2)
+                    {
+                        //hit at the current segmentpoint -> place the segmentpoint into the list
+                        verts.Add(p.WorldPos);
+                        markAsVisible = true;
+                    }
+                    else if (intersection1.index != intersection2.index)
+                    {
+                        //the raycasts landed on different segments
+                        //we definitely want to generate new geometry here
+                        verts.Add(isPoint1 ? p.WorldPos : intersection1.pos);
+                        verts.Add(isPoint2 ? p.WorldPos : intersection2.pos);
+                        markAsVisible = true;
+                    }
+                    if (markAsVisible)
+                    {
+                        visibleConvexHulls.Add(p.ConvexHull);
+                        visibleConvexHulls.Add(seg1.ConvexHull);
+                        visibleConvexHulls.Add(seg2.ConvexHull);
+                    }
+                    //if neither of the conditions above are met, we just assume
+                    //that the raycasts both resulted on the same segment
+                    //and creating geometry here would be wasteful
+                }
+            }           
 
             //remove points that are very close to each other
-            for (int i = 0; i < points.Count; i++)
+            for (int i = 0; i < verts.Count - 1; i++)
             {
-                for (int j = Math.Min(i + 4, points.Count-1); j > i; j--)
+                for (int j = Math.Min(i + 4, verts.Count - 1); j > i; j--)
                 {
-                    if (Math.Abs(points[i].WorldPos.X - points[j].WorldPos.X) < 6 &&
-                        Math.Abs(points[i].WorldPos.Y - points[j].WorldPos.Y) < 6)
+                    if (Math.Abs(verts[i].X - verts[j].X) < 6 &&
+                       Math.Abs(verts[i].Y - verts[j].Y) < 6)
                     {
-                        points.RemoveAt(j);
+                        verts.RemoveAt(j);
                     }
                 }
             }
-
-            var compareCCW = new CompareSegmentPointCW(drawPos);
-            try
-            {
-                points.Sort(compareCCW);
-            }
-            catch (Exception e)
-            {
-                StringBuilder sb = new StringBuilder("Constructing light volumes failed! Light pos: " + drawPos + ", Hull verts:\n");
-                foreach (SegmentPoint sp in points)
-                {
-                    sb.AppendLine(sp.Pos.ToString());
-                }
-                DebugConsole.ThrowError(sb.ToString(), e);
-            }
-                        
-            visibleSegments.Sort((s1, s2) => 
-                MathUtils.LineToPointDistanceSquared(s1.Start.WorldPos, s1.End.WorldPos, drawPos)
-                .CompareTo(MathUtils.LineToPointDistanceSquared(s2.Start.WorldPos, s2.End.WorldPos, drawPos)));
-
-            output.Clear();
-            foreach (SegmentPoint p in points)
-            {
-                Vector2 dir = Vector2.Normalize(p.WorldPos - drawPos);
-                Vector2 dirNormal = new Vector2(-dir.Y, dir.X) * 3;
-
-                //do two slightly offset raycasts to hit the segment itself and whatever's behind it
-                var intersection1 = RayCast(drawPos, drawPos + dir * boundsExtended * 2 - dirNormal, visibleSegments);
-                if (intersection1.index < 0) { return null; }
-                var intersection2 = RayCast(drawPos, drawPos + dir * boundsExtended * 2 + dirNormal, visibleSegments);
-                if (intersection2.index < 0) { return null; }
-
-                Segment seg1 = visibleSegments[intersection1.index];
-                Segment seg2 = visibleSegments[intersection2.index];
-
-                bool isPoint1 = MathUtils.LineToPointDistanceSquared(seg1.Start.WorldPos, seg1.End.WorldPos, p.WorldPos) < 25.0f;
-                bool isPoint2 = MathUtils.LineToPointDistanceSquared(seg2.Start.WorldPos, seg2.End.WorldPos, p.WorldPos) < 25.0f;
-
-                if (isPoint1 && isPoint2)
-                {
-                    //hit at the current segmentpoint -> place the segmentpoint into the list
-                    output.Add(p.WorldPos);
-
-                    foreach (ConvexHullList hullList in convexHullsInRange)
-                    {
-                        hullList.IsHidden.Remove(p.ConvexHull);
-                        hullList.IsHidden.Remove(seg1.ConvexHull);
-                        hullList.IsHidden.Remove(seg2.ConvexHull);
-                    }
-                }
-                else if (intersection1.index != intersection2.index)
-                {
-                    //the raycasts landed on different segments
-                    //we definitely want to generate new geometry here
-                    output.Add(isPoint1 ? p.WorldPos : intersection1.pos);
-                    output.Add(isPoint2 ? p.WorldPos : intersection2.pos);
-
-                    foreach (ConvexHullList hullList in convexHullsInRange)
-                    {
-                        hullList.IsHidden.Remove(p.ConvexHull);
-                        hullList.IsHidden.Remove(seg1.ConvexHull);
-                        hullList.IsHidden.Remove(seg2.ConvexHull);
-                    }
-                }
-                //if neither of the conditions above are met, we just assume
-                //that the raycasts both resulted on the same segment
-                //and creating geometry here would be wasteful
-            }
-
-            //remove points that are very close to each other
-            for (int i = 0; i < output.Count - 1; i++)
-            {
-                for (int j = Math.Min(i + 4, output.Count - 1); j > i; j--)
-                {
-                    if (Math.Abs(output[i].X - output[j].X) < 6 &&
-                       Math.Abs(output[i].Y - output[j].Y) < 6)
-                    {
-                        output.RemoveAt(j);
-                    }
-                }
-            }
-
-            return output;
+            calculatedDrawPos = drawPos;
+            state = LightVertexState.PendingVertexRecalculation;
         }
 
         private static (int index, Vector2 pos) RayCast(Vector2 rayStart, Vector2 rayEnd, List<Segment> segments)
@@ -954,7 +1014,7 @@ namespace Barotrauma.Lights
                 }
                 else
                 {
-                    intersects = MathUtils.GetLineIntersection(rayStart, rayEnd, s.Start.WorldPos, s.End.WorldPos, out intersection);
+                    intersects = MathUtils.GetLineSegmentIntersection(rayStart, rayEnd, s.Start.WorldPos, s.End.WorldPos, out intersection);
                 }
 
                 if (intersects)
@@ -987,14 +1047,11 @@ namespace Barotrauma.Lights
                 indices = new short[indexCount];
             }
 
-            Vector2 drawPos = position;
-            if (ParentSub != null) { drawPos += ParentSub.DrawPosition; }
-
-            float cosAngle = (float)Math.Cos(Rotation);
-            float sinAngle = -(float)Math.Sin(Rotation);
+            Vector2 drawPos = calculatedDrawPos;
 
             Vector2 uvOffset = Vector2.Zero;
             Vector2 overrideTextureDims = Vector2.One;
+            Vector2 dir = this.dir;
             if (OverrideLightTexture != null)
             {
                 overrideTextureDims = new Vector2(OverrideLightTexture.SourceRect.Width, OverrideLightTexture.SourceRect.Height);
@@ -1003,8 +1060,7 @@ namespace Barotrauma.Lights
                 if (LightSpriteEffect == SpriteEffects.FlipHorizontally)
                 {
                     origin.X = OverrideLightTexture.SourceRect.Width - origin.X;
-                    cosAngle = -cosAngle;
-                    sinAngle = -sinAngle;
+                    dir = -dir;
                 }
                 if (LightSpriteEffect == SpriteEffects.FlipVertically) { origin.Y = OverrideLightTexture.SourceRect.Height - origin.Y; }
                 uvOffset = (origin / overrideTextureDims) - new Vector2(0.5f, 0.5f);
@@ -1042,7 +1098,7 @@ namespace Barotrauma.Lights
 
                 //calculate normal of first segment
                 Vector2 nDiff1 = vertex - nextVertex;
-                float tx = nDiff1.X; nDiff1.X = -nDiff1.Y; nDiff1.Y = tx;
+                nDiff1 = new Vector2(-nDiff1.Y, nDiff1.X);
                 nDiff1 /= Math.Max(Math.Abs(nDiff1.X), Math.Abs(nDiff1.Y));
                 //if the normal is pointing towards the light origin
                 //rather than away from it, invert it
@@ -1050,21 +1106,23 @@ namespace Barotrauma.Lights
 
                 //calculate normal of second segment
                 Vector2 nDiff2 = prevVertex - vertex;
-                tx = nDiff2.X; nDiff2.X = -nDiff2.Y; nDiff2.Y = tx;
-                nDiff2 /= Math.Max(Math.Abs(nDiff2.X),Math.Abs(nDiff2.Y));
+                nDiff2 = new Vector2(-nDiff2.Y, nDiff2.X);
+                nDiff2 /= Math.Max(Math.Abs(nDiff2.X), Math.Abs(nDiff2.Y));
                 //if the normal is pointing towards the light origin
                 //rather than away from it, invert it
                 if (Vector2.DistanceSquared(nDiff2, rawDiff) > Vector2.DistanceSquared(-nDiff2, rawDiff)) nDiff2 = -nDiff2;
 
                 //add the normals together and use some magic numbers to create
                 //a somewhat useful/good-looking blur
-                Vector2 nDiff = nDiff1 * 40.0f;
-                if (MathUtils.GetLineIntersection(vertex + (nDiff1 * 40.0f), nextVertex + (nDiff1 * 40.0f), vertex + (nDiff2 * 40.0f), prevVertex + (nDiff2 * 40.0f), true, out Vector2 intersection))
+                float blurDistance = 40.0f;
+                Vector2 nDiff = nDiff1 * blurDistance;
+                if (MathUtils.GetLineIntersection(vertex + (nDiff1 * blurDistance), nextVertex + (nDiff1 * blurDistance), vertex + (nDiff2 * blurDistance), prevVertex + (nDiff2 * blurDistance), true, out Vector2 intersection))
                 {
                     nDiff = intersection - vertex;
-                    if (nDiff.LengthSquared() > 10000.0f)
+                    if (nDiff.LengthSquared() > 100.0f * 100.0f)
                     {
-                        nDiff /= Math.Max(Math.Abs(nDiff.X), Math.Abs(nDiff.Y)); nDiff *= 100.0f;
+                        nDiff /= Math.Max(Math.Abs(nDiff.X), Math.Abs(nDiff.Y)); 
+                        nDiff *= 100.0f;
                     }
                 }
 
@@ -1075,8 +1133,8 @@ namespace Barotrauma.Lights
                     //calculate texture coordinates based on the light's rotation
                     Vector2 originDiff = diff;
 
-                    diff.X = originDiff.X * cosAngle - originDiff.Y * sinAngle;
-                    diff.Y = originDiff.X * sinAngle + originDiff.Y * cosAngle;
+                    diff.X = originDiff.X * dir.X - originDiff.Y * dir.Y;
+                    diff.Y = originDiff.X * dir.Y + originDiff.Y * dir.X;
                     diff *= (overrideTextureDims / OverrideLightTexture.size);// / (1.0f - Math.Max(Math.Abs(uvOffset.X), Math.Abs(uvOffset.Y)));
                     diff += uvOffset;
                 }
@@ -1162,7 +1220,6 @@ namespace Barotrauma.Lights
             }
 
             translateVertices = Vector2.Zero;
-            rotateVertices = 0.0f;
             prevCalculatedPosition = position;
             prevCalculatedRotation = rotation;
         }
@@ -1182,9 +1239,6 @@ namespace Barotrauma.Lights
                 }
                 drawPos.Y = -drawPos.Y;
 
-                float cosAngle = (float)Math.Cos(Rotation);
-                float sinAngle = -(float)Math.Sin(Rotation);
-
                 float bounds = TextureRange;
 
                 if (OverrideLightTexture != null)
@@ -1196,8 +1250,8 @@ namespace Barotrauma.Lights
                     origin /= Math.Max(overrideTextureDims.X, overrideTextureDims.Y);
                     origin *= TextureRange;
 
-                    drawPos.X += origin.X * sinAngle + origin.Y * cosAngle;
-                    drawPos.Y += origin.X * cosAngle + origin.Y * sinAngle;
+                    drawPos.X += origin.X * dir.Y + origin.Y * dir.X;
+                    drawPos.Y += origin.X * dir.X + origin.Y * dir.Y;
                 }
 
                 //add a square-shaped boundary to make sure we've got something to construct the triangles from
@@ -1303,7 +1357,7 @@ namespace Barotrauma.Lights
         {
             if (conditionals.None()) { return; }
             if (conditionalTarget == null) { return; }
-            if (comparison == PropertyConditional.Comparison.And)
+            if (logicalOperator == PropertyConditional.LogicalOperatorType.And)
             {
                 Enabled = conditionals.All(c => c.Matches(conditionalTarget));
             }
@@ -1340,31 +1394,49 @@ namespace Barotrauma.Lights
 
             if (NeedsRecalculation && allowRecalculation)
             {
-                recalculationCount++;
-                var verts = FindRaycastHits();
-                if (verts == null)
+                if (state == LightVertexState.UpToDate)
                 {
-#if DEBUG
-                    DebugConsole.ThrowError($"Failed to generate vertices for a light source. Range: {Range}, color: {Color}, brightness: {CurrentBrightness}, parent: {ParentBody?.UserData ?? "Unknown"}");
-#endif
-                    Enabled = false;
-                    return;
+                    recalculationCount++;
+                    FindRaycastHits();
                 }
+                else if (state == LightVertexState.PendingVertexRecalculation)
+                {
+                    if (verts == null)
+                    {
+    #if DEBUG
+                        DebugConsole.ThrowError($"Failed to generate vertices for a light source. Range: {Range}, color: {Color}, brightness: {CurrentBrightness}, parent: {ParentBody?.UserData ?? "Unknown"}");
+    #endif
+                        Enabled = false;
+                        return;
+                    }
 
-                CalculateLightVertices(verts);
+                    foreach (var visibleConvexHull in visibleConvexHulls)
+                    {
+                        foreach (var convexHullList in convexHullsInRange)
+                        {
+                            convexHullList.IsHidden.Remove(visibleConvexHull);
+                        }
+                    }
 
-                LastRecalculationTime = (float)Timing.TotalTime;
-                NeedsRecalculation = false;
+                    CalculateLightVertices(verts);
+
+                    LastRecalculationTime = (float)Timing.TotalTime;
+                    NeedsRecalculation = needsRecalculationWhenUpToDate;
+                    needsRecalculationWhenUpToDate = false;
+
+                    state = LightVertexState.UpToDate;
+                }
             }
+
+            if (vertexCount == 0) { return; }
 
             Vector2 offset = ParentSub == null ? Vector2.Zero : ParentSub.DrawPosition;
             lightEffect.World =
                 Matrix.CreateTranslation(-new Vector3(position, 0.0f)) *
-                Matrix.CreateRotationZ(rotateVertices - MathHelper.ToRadians(LightSourceParams.Rotation)) *
+                Matrix.CreateRotationZ(MathHelper.ToRadians(LightSourceParams.Rotation)) *
                 Matrix.CreateTranslation(new Vector3(position + offset + translateVertices, 0.0f)) *
                 transform;
 
-            if (vertexCount == 0) { return; }
 
             lightEffect.DiffuseColor = (new Vector3(Color.R, Color.G, Color.B) * (Color.A / 255.0f * CurrentBrightness)) / 255.0f;
             if (OverrideLightTexture != null)

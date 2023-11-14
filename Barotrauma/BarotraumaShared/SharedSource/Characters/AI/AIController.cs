@@ -95,10 +95,7 @@ namespace Barotrauma
         {
             get
             {
-                if (visibleHulls == null)
-                {
-                    visibleHulls = Character.GetVisibleHulls();
-                }
+                visibleHulls ??= Character.GetVisibleHulls();
                 return visibleHulls;
             }
             private set
@@ -334,6 +331,11 @@ namespace Barotrauma
                     }
                 }
                 if (targetSlot < 0) { return false; }
+                //the item should always stay in the Any slot if it's containable in one
+                if (pickable.AllowedSlots.Contains(InvSlotType.Any))
+                {
+                    targetInventory.TryPutItem(item, Character, CharacterInventory.AnySlot);
+                }
                 return targetInventory.TryPutItem(item, targetSlot, allowSwapping, allowCombine: false, Character);
             }
             else
@@ -425,14 +427,9 @@ namespace Barotrauma
                         var door = gap.ConnectedDoor;
                         if (door != null)
                         {
-                            if (!door.CanBeTraversed)
+                            if (!pathSteering.CanAccessDoor(door))
                             {
-                                if (!door.HasAccess(Character))
-                                {
-                                    if (!canAttackDoors) { continue; }
-                                    // Treat doors that don't have access to like they were farther, because it will take time to break them.
-                                    multiplier = 5;
-                                }
+                                continue;
                             }
                         }
                         else
@@ -473,7 +470,7 @@ namespace Barotrauma
                 Vector2 diff = EscapeTarget.WorldPosition - Character.WorldPosition;
                 float sqrDist = diff.LengthSquared();
                 bool isClose = sqrDist < MathUtils.Pow2(100);
-                if (Character.CurrentHull == null || isClose && !isClosedDoor || pathSteering == null || IsCurrentPathUnreachable || IsCurrentPathFinished)
+                if (Character.CurrentHull == null || (isClose && !isClosedDoor) || pathSteering == null || IsCurrentPathUnreachable || IsCurrentPathFinished)
                 {
                     // Very close to the target, outside, or at the end of the path -> try to steer through the gap
                     Character.ReleaseSecondaryItem();
@@ -529,8 +526,5 @@ namespace Barotrauma
 
         protected virtual void OnStateChanged(AIState from, AIState to) { }
         protected virtual void OnTargetChanged(AITarget previousTarget, AITarget newTarget) { }
-
-        public virtual void ClientRead(IReadMessage msg) { }
-        public virtual void ServerWrite(IWriteMessage msg) { }
     }
 }

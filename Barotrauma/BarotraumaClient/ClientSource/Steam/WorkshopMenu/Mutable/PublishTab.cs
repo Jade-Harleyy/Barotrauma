@@ -9,6 +9,7 @@ using Barotrauma.Extensions;
 using Barotrauma.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Steamworks;
 using Directory = Barotrauma.IO.Directory;
 using ItemOrPackage = Barotrauma.Either<Steamworks.Ugc.Item, Barotrauma.ContentPackage>;
 using Path = Barotrauma.IO.Path;
@@ -157,7 +158,7 @@ namespace Barotrauma.Steam
                 }
 
                 var selectedTitle =
-                    new GUITextBlock(new RectTransform((1.0f, 0.05f), mainLayout.RectTransform), workshopItem.Title ?? localPackage.Name,
+                    new GUITextBlock(new RectTransform((1.0f, 0.05f), mainLayout.RectTransform), localPackage.Name,
                         font: GUIStyle.LargeFont);
                 if (workshopItem.Id != 0)
                 {
@@ -212,7 +213,7 @@ namespace Barotrauma.Steam
                     };
 
                 Label(rightTop, TextManager.Get("WorkshopItemTitle"), GUIStyle.SubHeadingFont);
-                var titleTextBox = new GUITextBox(NewItemRectT(rightTop), workshopItem.Title ?? localPackage.Name);
+                var titleTextBox = new GUITextBox(NewItemRectT(rightTop), localPackage.Name);
 
                 Label(rightTop, TextManager.Get("WorkshopItemDescription"), GUIStyle.SubHeadingFont);
                 var descriptionTextBox
@@ -320,7 +321,9 @@ namespace Barotrauma.Steam
                             workshopItem.Id == 0
                                 ? Steamworks.Ugc.Editor.NewCommunityFile
                                 : new Steamworks.Ugc.Editor(workshopItem.Id);
-                        ugcEditor = ugcEditor.WithTitle(titleTextBox.Text)
+                        ugcEditor = ugcEditor
+                            .InLanguage(SteamUtils.SteamUILanguage ?? string.Empty)
+                            .WithTitle(titleTextBox.Text)
                             .WithDescription(descriptionTextBox.Text)
                             .WithTags(tagButtons.Where(kvp => kvp.Value.Selected).Select(kvp => kvp.Key.Value))
                             .WithChangeLog(changeNoteTextBox.Text)
@@ -376,7 +379,7 @@ namespace Barotrauma.Steam
 
         private IEnumerable<CoroutineStatus> MessageBoxCoroutine(Func<GUITextBlock, GUIMessageBox, IEnumerable<CoroutineStatus>> subcoroutine)
         {
-            var messageBox = new GUIMessageBox("", "...", buttons: new [] { TextManager.Get("Cancel") });
+            var messageBox = new GUIMessageBox("", TextManager.Get("ellipsis"), buttons: new [] { TextManager.Get("Cancel") });
             messageBox.Buttons[0].OnClicked = (button, o) =>
             {
                 messageBox.Close();
@@ -525,10 +528,18 @@ namespace Barotrauma.Steam
                     yield return new WaitForSeconds(0.5f);
                 }
 
-                if (!resultItem.IsInstalled)
+                //there seems to sometimes be a brief delay between the download task and the item being installed, wait a bit before deeming the install as failed
+                DateTime waitInstallUntil = DateTime.Now + new TimeSpan(0, 0, seconds: 30);
+                while (!resultItem.IsInstalled || resultItem.IsDownloading)
                 {
-                    throw new Exception($"Failed to install item: download task ended with status {downloadTask.Status}, " +
-                                        $"exception was {downloadTask.Exception?.GetInnermost()?.ToString().CleanupStackTrace() ?? "[NULL]"}");
+                    if (DateTime.Now > waitInstallUntil)
+                    {
+                        throw new Exception($"Failed to install item: download task ended with status {downloadTask.Status}," +
+                            $" item installed: {resultItem.IsInstalled}, " +
+                            $" item downloading: {resultItem.IsDownloading}, " +
+                            $"exception was {downloadTask.Exception?.GetInnermost()?.ToString().CleanupStackTrace() ?? "[NULL]"}");
+                    }
+                    yield return new WaitForSeconds(0.5f);
                 }
 
                 ContentPackage? pkgToNuke

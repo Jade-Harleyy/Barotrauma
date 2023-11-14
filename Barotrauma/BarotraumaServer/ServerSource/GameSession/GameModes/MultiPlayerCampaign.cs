@@ -6,7 +6,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
-using Barotrauma.Steam;
 
 namespace Barotrauma
 {
@@ -261,7 +260,7 @@ namespace Barotrauma
                     {
                         //character still alive (or killed by Disconnect) -> save it as-is
                         characterData.RemoveAll(cd => cd.IsDuplicate(data));
-                        data.Refresh(character);
+                        data.Refresh(character, refreshHealthData: character.CauseOfDeath?.Type != CauseOfDeathType.Disconnected);
                         characterData.Add(data);
                     }
                     else
@@ -319,7 +318,7 @@ namespace Barotrauma
             discardedCharacters.Clear();
         }
 
-        protected override IEnumerable<CoroutineStatus> DoLevelTransition(TransitionType transitionType, LevelData newLevel, Submarine leavingSub, bool mirror, List<TraitorMissionResult> traitorResults)
+        protected override IEnumerable<CoroutineStatus> DoLevelTransition(TransitionType transitionType, LevelData newLevel, Submarine leavingSub, bool mirror)
         {
             IncrementAllLastUpdateIds();
 
@@ -361,7 +360,7 @@ namespace Barotrauma
                 GameMain.GameSession.EventManager.RegisterEventHistory();
             }
 
-            GameMain.GameSession.EndRound("", traitorResults, transitionType);
+            GameMain.GameSession.EndRound("", transitionType);
             
             //--------------------------------------
 
@@ -1310,6 +1309,10 @@ namespace Barotrauma
 
         public override bool TryPurchase(Client client, int price)
         {
+            //disconnected clients can never purchase anything
+            //(can happen e.g. if someone starts a vote to buy something and then disconnects)
+            if (client != null && !GameMain.Server.ConnectedClients.Contains(client)) { return false; }
+
             Wallet wallet = GetWallet(client);
             if (!AllowedToManageWallets(client))
             {
@@ -1358,7 +1361,17 @@ namespace Barotrauma
 
             modeElement.Add(Settings.Save());
             modeElement.Add(SaveStats());
+            if (GameMain.Server?.TraitorManager is TraitorManager traitorManager)
+            {
+                modeElement.Add(traitorManager.Save());
+            }
             modeElement.Add(Bank.Save());
+
+            if (GameMain.GameSession?.EventManager != null)
+            {
+                modeElement.Add(GameMain.GameSession?.EventManager.Save());
+            }
+
             CampaignMetadata?.Save(modeElement);
             Map.Save(modeElement);
             CargoManager?.SavePurchasedItems(modeElement);

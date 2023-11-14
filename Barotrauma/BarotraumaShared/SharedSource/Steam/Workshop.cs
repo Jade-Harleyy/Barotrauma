@@ -490,7 +490,7 @@ namespace Barotrauma.Steam
                     root.Attributes().Remove();
 
                     root.Add(
-                        new XAttribute("name", itemTitle),
+                        new XAttribute("name", modName),
                         new XAttribute("steamworkshopid", itemId),
                         new XAttribute("corepackage", isCorePackage),
                         new XAttribute("modversion", modVersion),
@@ -613,7 +613,8 @@ namespace Barotrauma.Steam
             
             public static async Task CopyDirectory(string fileListDir, string modName, string from, string to, ShouldCorrectPaths shouldCorrectPaths)
             {
-                from = Path.GetFullPath(from); to = Path.GetFullPath(to);
+                from = Path.GetFullPath(from); 
+                to = Path.GetFullPath(to);
                 Directory.CreateDirectory(to);
 
                 string convertFromTo(string from)
@@ -623,10 +624,16 @@ namespace Barotrauma.Steam
                 string[] subDirs = Directory.GetDirectories(from);
                 foreach (var file in files)
                 {
+                    //ignore hidden files
+                    if (Path.GetFileName(file).StartsWith('.')) { continue; }
                     await CopyFile(fileListDir, modName, file, convertFromTo(file), shouldCorrectPaths);
                 }
 
-                foreach (var dir in subDirs) { await CopyDirectory(fileListDir, modName, dir, convertFromTo(dir), shouldCorrectPaths); }
+                foreach (var dir in subDirs)
+                {
+                    if (Path.GetFileName(dir) is { } dirName && dirName.StartsWith('.')) { continue; }
+                    await CopyDirectory(fileListDir, modName, dir, convertFromTo(dir), shouldCorrectPaths); 
+                }
             }
         }
     }

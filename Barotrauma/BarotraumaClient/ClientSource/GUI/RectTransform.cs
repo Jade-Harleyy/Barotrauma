@@ -175,6 +175,7 @@ namespace Barotrauma
             {
                 if (relativeOffset.NearlyEquals(value)) { return; }
                 relativeOffset = value;
+                recalculateRect = true;
                 RecalculateChildren(false, false);
             }
         }
@@ -305,6 +306,8 @@ namespace Barotrauma
             {
                 _scaleBasis = value;
                 RecalculateAbsoluteSize();
+                RecalculateAnchorPoint();
+                RecalculatePivotOffset();
             }
         }
 

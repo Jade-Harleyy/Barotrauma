@@ -300,7 +300,7 @@ namespace Barotrauma.Items.Components
                 user = null;
             }
 
-            ApplyStatusEffects(ActionType.OnActive, deltaTime, null);
+            ApplyStatusEffects(ActionType.OnActive, deltaTime);
 
             float userSkill = 0.0f;
             if (user != null && controlledSub != null &&
@@ -444,7 +444,7 @@ namespace Barotrauma.Items.Components
             if (connectedSubUpdateTimer <= 0.0f)
             {
                 connectedSubs.Clear();
-                connectedSubs = controlledSub?.GetConnectedSubs();                
+                connectedSubs.AddRange(controlledSub.GetConnectedSubs());                
                 connectedSubUpdateTimer = ConnectedSubUpdateInterval;
             }
 
@@ -508,7 +508,7 @@ namespace Barotrauma.Items.Components
             var closeCells = Level.Loaded.GetCells(controlledSub.WorldPosition, 4);
             foreach (VoronoiCell cell in closeCells)
             {
-                if (cell.DoesDamage)
+                if (cell.DoesDamage || cell.Body is { BodyType: BodyType.Dynamic })
                 {
                     foreach (GraphEdge edge in cell.Edges)
                     {
@@ -525,7 +525,7 @@ namespace Barotrauma.Items.Components
                         newAvoidStrength += avoid;
                         debugDrawObstacles.Add(new ObstacleDebugInfo(edge, edge.Center, 1.0f, avoid, cell.Translation));
 
-                        if (dot > 0.0f)
+                        if (dot > 0.0f && cell.DoesDamage)
                         {
                             showIceSpireWarning = true;
                         }
@@ -535,7 +535,7 @@ namespace Barotrauma.Items.Components
 
                 foreach (GraphEdge edge in cell.Edges)
                 {
-                    if (MathUtils.GetLineIntersection(edge.Point1 + cell.Translation, edge.Point2 + cell.Translation, controlledSub.WorldPosition, cell.Center, out Vector2 intersection))
+                    if (MathUtils.GetLineSegmentIntersection(edge.Point1 + cell.Translation, edge.Point2 + cell.Translation, controlledSub.WorldPosition, cell.Center, out Vector2 intersection))
                     {
                         Vector2 diff = controlledSub.WorldPosition - intersection;
                         //far enough -> ignore

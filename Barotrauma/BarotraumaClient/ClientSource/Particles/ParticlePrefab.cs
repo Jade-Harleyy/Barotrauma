@@ -135,6 +135,9 @@ namespace Barotrauma.Particles
         [Editable(0.0f, 10000.0f), Serialize(0.0f, IsPropertySaveable.No, description: "Radius of the particle's collider. Only has an effect if UseCollision is set to true.")]
         public float CollisionRadius { get; private set; }
 
+        [Editable, Serialize(false, IsPropertySaveable.No, description: "If enabled, the size (or changes in size) of the particle doesn't affect the size of the collider.")]
+        public bool InvariantCollisionSize { get; private set; }
+
         [Editable, Serialize(false, IsPropertySaveable.No, description: "Does the particle collide with the walls of the submarine and the level.")]
         public bool UseCollision { get; private set; }
 
@@ -162,7 +165,7 @@ namespace Barotrauma.Particles
         [Editable, Serialize("0.0,0.0", IsPropertySaveable.No, description: "How much the size of the particle changes per second. The rate of growth for each particle is randomize between SizeChangeMin and SizeChangeMax.")]
         public Vector2 SizeChangeMax { get; private set; }
 
-        [Editable, Serialize(0.0f, IsPropertySaveable.No, description: "How many seconds it takes for the particle to grow to it's initial size.")]
+        [Editable(minValue: 0, maxValue: float.MaxValue, decimals: 2), Serialize(0.0f, IsPropertySaveable.No, description: "How many seconds it takes for the particle to grow to it's initial size.")]
         public float GrowTime { get; private set; }
 
         //rendering -----------------------------------------

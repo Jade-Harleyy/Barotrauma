@@ -262,6 +262,12 @@ namespace Barotrauma
                 SpawnedInCurrentOutpost = true,
                 AllowStealing = false
             };
+            item.AddTag("cargomission");
+            item.AddTag(Prefab.Identifier);
+            foreach (var tag in Prefab.Tags)
+            {
+                item.AddTag(tag);
+            }
             item.FindHull();
             items.Add(item);
 
@@ -320,7 +326,7 @@ namespace Barotrauma
         private static bool IsItemDelivered(Item item)
         {
             if (item.Removed || item.Condition <= 0.0f || Submarine.MainSub == null) { return false; }
-            var submarine = item.Submarine ?? item.GetRootContainer()?.Submarine;
+            var submarine = item.Submarine ?? item.RootContainer?.Submarine;
             return submarine == Submarine.MainSub || Submarine.MainSub.GetConnectedSubs().Contains(submarine);
         }
     }

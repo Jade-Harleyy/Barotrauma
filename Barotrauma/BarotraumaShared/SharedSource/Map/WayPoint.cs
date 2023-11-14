@@ -19,7 +19,7 @@ namespace Barotrauma
 
         public static bool ShowWayPoints = true, ShowSpawnPoints = true;
 
-        public const float LadderWaypointInterval = 55.0f;
+        public const float LadderWaypointInterval = 75.0f;
 
         protected SpawnType spawnType;
         private string[] idCardTags;
@@ -562,7 +562,7 @@ namespace Barotrauma
             removals.ForEach(wp => wp.Remove());
             removals.Clear();
             // Stairs
-            foreach (MapEntity mapEntity in mapEntityList.ToList())
+            foreach (MapEntity mapEntity in MapEntityList.ToList())
             {
                 if (!(mapEntity is Structure structure)) { continue; }
                 if (structure.StairDirection == Direction.None) { continue; }

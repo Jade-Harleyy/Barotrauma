@@ -1,10 +1,10 @@
-﻿using Barotrauma.Items.Components;
+﻿using Barotrauma.Extensions;
+using Barotrauma.Items.Components;
+using Barotrauma.Networking;
 using FarseerPhysics;
 using Microsoft.Xna.Framework;
 using System;
 using System.Linq;
-using Barotrauma.Extensions;
-using Barotrauma.Networking;
 
 namespace Barotrauma
 {
@@ -144,7 +144,7 @@ namespace Barotrauma
             set { HumanSwimFastParams = value as HumanSwimFastParams; }
         }
 
-        public bool Crouching;
+        public bool Crouching { get; set; }
 
         private float upperLegLength = 0.0f, lowerLegLength = 0.0f;
 
@@ -197,7 +197,7 @@ namespace Barotrauma
         public HumanoidAnimController(Character character, string seed, HumanRagdollParams ragdollParams = null) : base(character, seed, ragdollParams)
         {
             // TODO: load from the character info file?
-            movementLerp = RagdollParams.MainElement.GetAttributeFloat("movementlerp", 0.4f);
+            movementLerp = RagdollParams?.MainElement?.GetAttributeFloat("movementlerp", 0.4f) ?? 0f;
         }
 
         public override void Recreate(RagdollParams ragdollParams = null)
@@ -243,19 +243,14 @@ namespace Barotrauma
             if (MainLimb == null) { return; }
 
             levitatingCollider = !IsHanging;
-            ColliderIndex = Crouching && !swimming ? 1 : 0;
             if ((character.SelectedItem?.GetComponent<Controller>()?.ControlCharacterPose ?? false) ||
                 (character.SelectedSecondaryItem?.GetComponent<Controller>()?.ControlCharacterPose ?? false) ||
                 character.SelectedSecondaryItem?.GetComponent<Ladder>() != null ||
                 (ForceSelectAnimationType != AnimationType.Crouch && ForceSelectAnimationType != AnimationType.NotDefined))
             {
                 Crouching = false;
-                ColliderIndex = 0;
             }
-            else if (!Crouching && ColliderIndex == 1) 
-            { 
-                Crouching = true; 
-            }
+            ColliderIndex = Crouching && !swimming ? 1 : 0;
 
             //stun (= disable the animations) if the ragdoll receives a large enough impact
             if (strongestImpact > 0.0f)
@@ -416,6 +411,22 @@ namespace Barotrauma
                         //prevents rapid switches between swimming/walking if the water level is fluctuating around the minimum swimming depth
                         swimming = inWater;
                         swimmingStateLockTimer = 0.5f;
+                    }
+                    if (character.SelectedItem?.Prefab is { GrabWhenSelected: true } && 
+                        character.SelectedItem.ParentInventory == null &&
+                        character.SelectedItem.body is not { Enabled: true } &&
+                        character.SelectedItem.GetComponent<Repairable>()?.CurrentFixer != character)
+                    {
+                        bool moving = character.IsKeyDown(InputType.Left) || character.IsKeyDown(InputType.Right);
+                        moving |= (character.InWater || character.IsClimbing) && (character.IsKeyDown(InputType.Up) || character.IsKeyDown(InputType.Down));
+                        if (!moving)
+                        {
+                            Vector2 handPos = character.SelectedItem.WorldPosition - Vector2.UnitY * ConvertUnits.ToDisplayUnits(ArmLength / 2);
+                            handPos.Y = Math.Max(handPos.Y, character.SelectedItem.WorldRect.Y - character.SelectedItem.WorldRect.Height);
+                            UpdateUseItem(
+                                allowMovement: false,
+                                handPos);
+                        }
                     }
                     if (swimming)
                     {
@@ -616,7 +627,7 @@ namespace Barotrauma
             if (TorsoAngle.HasValue && !torso.Disabled)
             {
                 float torsoAngle = TorsoAngle.Value;
-                float herpesStrength = character.CharacterHealth.GetAfflictionStrength(AfflictionPrefab.SpaceHerpesType);
+                float herpesStrength = character.CharacterHealth.GetAfflictionStrengthByType(AfflictionPrefab.SpaceHerpesType);
                 if (Crouching && !movingHorizontally && !Aiming) { torsoAngle -= HumanCrouchParams.ExtraTorsoAngleWhenStationary; }
                 torsoAngle -= herpesStrength / 150.0f;
                 torso.body.SmoothRotate(torsoAngle * Dir, currentGroundedParams.TorsoTorque);
@@ -1544,6 +1555,10 @@ namespace Barotrauma
                 target.AnimController.ResetPullJoints();
             }
 
+            bool targetPoseControlled = 
+                target.SelectedItem?.GetComponent<Controller>() is { ControlCharacterPose: true } ||
+                target.SelectedSecondaryItem?.GetComponent<Controller>() is { ControlCharacterPose: true };
+
             if (IsClimbing)
             {
                 //cannot drag up ladders if the character is conscious
@@ -1719,13 +1734,12 @@ namespace Barotrauma
                         targetForce = 5000.0f;
                     }
 
-                    targetLimb.PullJointEnabled = true;
-                    targetLimb.PullJointMaxForce = targetForce;
-                    targetLimb.PullJointWorldAnchorB = targetAnchor;
-                    targetLimb.Disabled = true;                    
-
-                    if (diff.LengthSquared() > 0.1f)
+                    if (!targetPoseControlled)
                     {
+                        targetLimb.PullJointEnabled = true;
+                        targetLimb.PullJointMaxForce = targetForce;
+                        targetLimb.PullJointWorldAnchorB = targetAnchor;
+                        targetLimb.Disabled = true;
                         target.AnimController.movement = -diff;
                     }
                 }
@@ -1751,7 +1765,7 @@ namespace Barotrauma
                     target.AnimController.IgnorePlatforms = IgnorePlatforms;
                     target.AnimController.TargetMovement = TargetMovement;
                 }
-                else if (target is AICharacter && target != Character.Controlled)
+                else if (target is AICharacter && target != Character.Controlled && !targetPoseControlled)
                 {
                     if (target.AnimController.Dir > 0 == WorldPosition.X > target.WorldPosition.X)
                     {

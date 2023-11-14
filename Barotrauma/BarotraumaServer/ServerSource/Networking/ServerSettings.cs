@@ -215,11 +215,15 @@ namespace Barotrauma.Networking
                 int orBits = incMsg.ReadRangedInteger(0, (int)Barotrauma.MissionType.All) & (int)Barotrauma.MissionType.All;
                 int andBits = incMsg.ReadRangedInteger(0, (int)Barotrauma.MissionType.All) & (int)Barotrauma.MissionType.All;
                 GameMain.NetLobbyScreen.MissionType = (MissionType)(((int)GameMain.NetLobbyScreen.MissionType | orBits) & andBits);
-                
-                int traitorSetting = (int)TraitorsEnabled + incMsg.ReadByte() - 1;
-                if (traitorSetting < 0) { traitorSetting = 2; }
-                if (traitorSetting > 2) { traitorSetting = 0; }
-                TraitorsEnabled = (YesNoMaybe)traitorSetting;
+
+                bool changedTraitorProbability = incMsg.ReadBoolean();
+                float traitorProbability = incMsg.ReadSingle();
+                if (changedTraitorProbability)
+                {
+                    TraitorProbability = traitorProbability;
+                }
+                //the byte indicates the direction we're changing the value, subtract one to get negative values from a byte
+                TraitorDangerLevel = TraitorDangerLevel + incMsg.ReadByte() - 1;
 
                 int botCount = BotCount + incMsg.ReadByte() - 1;
                 if (botCount < 0) { botCount = MaxBotCount; }
@@ -347,7 +351,7 @@ namespace Barotrauma.Networking
             selectedLevelDifficulty = doc.Root.GetAttributeFloat("LevelDifficulty", 20.0f);
             GameMain.NetLobbyScreen.SetLevelDifficulty(selectedLevelDifficulty);
             
-            GameMain.NetLobbyScreen.SetTraitorsEnabled(traitorsEnabled);
+            GameMain.NetLobbyScreen.SetTraitorProbability(traitorProbability);
 
             HiddenSubs.UnionWith(doc.Root.GetAttributeStringArray("HiddenSubs", Array.Empty<string>()));
             if (HiddenSubs.Any())
@@ -370,6 +374,8 @@ namespace Barotrauma.Networking
                     "192-255",
                     "384-591",
                     "1024-1279",
+                    "4352-4607", //Hangul Jamo
+                    "44032-55215", //Hangul Syllables
                     "19968-21327","21329-40959","13312-19903","131072-173791","173824-178207","178208-183983","63744-64255","194560-195103" //CJK
                 };
 

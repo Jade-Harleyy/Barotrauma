@@ -41,6 +41,8 @@ namespace Barotrauma.Items.Components
         }
 
         private bool isStuck;
+
+        [Serialize(false, IsPropertySaveable.Yes, alwaysUseInstanceValues: true)]
         public bool IsStuck
         {
             get { return isStuck; }
@@ -49,7 +51,10 @@ namespace Barotrauma.Items.Components
                 if (isStuck == value) { return; }
                 isStuck = value;
 #if SERVER
-                item.CreateServerEvent(this);
+                if (item.FullyInitialized)
+                {
+                    item.CreateServerEvent(this);
+                }
 #endif
             }
         }
@@ -69,7 +74,7 @@ namespace Barotrauma.Items.Components
 
         private bool isBroken;
 
-        public bool CanBeTraversed => (IsOpen || IsBroken) && !IsJammed && !IsStuck && !Impassable;
+        public bool CanBeTraversed => !Impassable && (IsBroken || IsOpen);
         
         public bool IsBroken
         {
@@ -105,7 +110,7 @@ namespace Barotrauma.Items.Components
         public bool CanBeWelded = true;
 
         private float stuck;
-        [Serialize(0.0f, IsPropertySaveable.No, description: "How badly stuck the door is (in percentages). If the percentage reaches 100, the door needs to be cut open to make it usable again.")]
+        [Serialize(0.0f, IsPropertySaveable.Yes, description: "How badly stuck the door is (in percentages). If the percentage reaches 100, the door needs to be cut open to make it usable again.")]
         public float Stuck
         {
             get { return stuck; }
@@ -181,18 +186,28 @@ namespace Barotrauma.Items.Components
 
         [Serialize(false, IsPropertySaveable.No, description: "If the door has integrated buttons, it can be opened by interacting with it directly (instead of using buttons wired to it).")]
         public bool HasIntegratedButtons { get; private set; }
-                
+
+        [ConditionallyEditable(ConditionallyEditable.ConditionType.HasIntegratedButtons), 
+        Serialize(true, IsPropertySaveable.No, description: "If the door has integrated buttons, should clicking on it perform the default action of opening the door? Can be used in conjunction with the \"activate_out\" output to pass a signal to a circuit without toggling the door when someone tries to open/close the door.")]
+        public bool ToggleWhenClicked { get; private set; }
+
         public float OpenState
         {
             get { return openState; }
             set 
-            {                
+            {
                 openState = MathHelper.Clamp(value, 0.0f, 1.0f);
 #if CLIENT
                 float size = IsHorizontal ? item.Rect.Width : item.Rect.Height;
-                if (Math.Abs(lastConvexHullState - openState) * size < 5.0f) { return; }
-                UpdateConvexHulls();
-                lastConvexHullState = openState;
+                //refresh convex hulls if the body of the door has moved by 5 pixels,
+                //or if it becomes fully closed or fully open
+                if (Math.Abs(lastConvexHullState - openState) * size > 5.0f ||
+                    (openState <= 0.0f && lastConvexHullState > 0.0f) ||
+                    (openState >= 1.0f && lastConvexHullState < 1.0f)) 
+                {
+                    UpdateConvexHulls();
+                    lastConvexHullState = openState; 
+                }
 #endif
             }
         }
@@ -336,8 +351,12 @@ namespace Barotrauma.Items.Components
                 OnFailedToOpen();
                 return;
             }
+            item.SendSignal("1", "activate_out");
             lastUser = user;
-            SetState(PredictedState == null ? !isOpen : !PredictedState.Value, false, true, forcedOpen: actionType == ActionType.OnPicked);
+            if (ToggleWhenClicked)
+            {
+                SetState(PredictedState == null ? !isOpen : !PredictedState.Value, false, true, forcedOpen: actionType == ActionType.OnPicked);
+            }
         }
 
         public override bool Select(Character character)
@@ -382,8 +401,6 @@ namespace Barotrauma.Items.Components
                 }
                 return;
             }
-
-
 
             bool isClosing = false;
             if ((!IsStuck && !IsJammed) || !isOpen)
@@ -523,11 +540,11 @@ namespace Barotrauma.Items.Components
         {
             RefreshLinkedGap();
 #if CLIENT
-            Vector2[] corners = GetConvexHullCorners(Rectangle.Empty);
-
-            convexHull = new ConvexHull(corners, Color.Black, item);
-            if (Window != Rectangle.Empty) convexHull2 = new ConvexHull(corners, Color.Black, item);
-
+            convexHull = new ConvexHull(doorRect, IsHorizontal, item);
+            if (Window != Rectangle.Empty)
+            {
+                convexHull2 = new ConvexHull(doorRect, IsHorizontal, item);
+            }
             UpdateConvexHulls();
 #endif
         }

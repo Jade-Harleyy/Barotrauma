@@ -9,6 +9,7 @@ using System.Text;
 using System.Xml.Linq;
 using Barotrauma.Networking;
 using System.Collections;
+using System.Collections.Immutable;
 #if SERVER
 using Barotrauma.Networking;
 #endif
@@ -415,14 +416,31 @@ namespace Barotrauma
                 }
             }
 #endif
-            return Submarine.MainSub.GetItems(true).FindAll(item =>
+            return FindAllSellableItems().Where(it => IsItemSellable(it, confirmedSoldEntities)).ToList();
+        }
+
+        public static IReadOnlyCollection<Item> FindAllItemsOnPlayerAndSub(Character character)
+        {
+            List<Item> allItems = new();
+            if (character?.Inventory is { } inv)
             {
-                if (!IsItemSellable(item, confirmedSoldEntities)) { return false; }
+               allItems.AddRange(inv.FindAllItems(recursive: true));
+            }
+            allItems.AddRange(FindAllSellableItems());
+            return allItems;
+        }
+
+        public static IEnumerable<Item> FindAllSellableItems()
+        {
+            if (Submarine.MainSub is null) { return Enumerable.Empty<Item>(); }
+
+            return Submarine.MainSub.GetItems(true).FindAll(static item =>
+            {
                 if (item.GetRootInventoryOwner() is Character) { return false; }
-                if (!item.Components.All(c => !(c is Holdable h) || !h.Attachable || !h.Attached)) { return false; }
-                if (!item.Components.All(c => !(c is Wire w) || w.Connections.All(c => c == null))) { return false; }
+                if (!item.Components.All(static c => c is not Holdable { Attachable: true, Attached: true })) { return false; }
+                if (!item.Components.All(static c => c is not Wire w || w.Connections.All(static c => c is null))) { return false; }
                 if (!ItemAndAllContainersInteractable(item)) { return false; }
-                if (item.GetRootContainer() is Item rootContainer && rootContainer.HasTag("dontsellitems")) { return false; }
+                if (item.RootContainer is Item rootContainer && rootContainer.HasTag(Tags.DontSellItems)) { return false; }
                 return true;
             }).Distinct();
 
@@ -480,7 +498,7 @@ namespace Barotrauma
             .Distinct();
 
         public static IEnumerable<Item> FilterCargoCrates(IEnumerable<Item> items, Func<Item, bool> conditional = null)
-            => items.Where(it => it.HasTag("crate") && !it.NonInteractable && !it.NonPlayerTeamInteractable && !it.HiddenInGame && !it.Removed && (conditional == null || conditional(it)));
+            => items.Where(it => it.HasTag(Tags.Crate) && !it.NonInteractable && !it.NonPlayerTeamInteractable && !it.HiddenInGame && !it.Removed && (conditional == null || conditional(it)));
 
         public static IEnumerable<ItemContainer> FindReusableCargoContainers(IEnumerable<Submarine> subs, IEnumerable<Hull> cargoRooms = null) =>
             FilterCargoCrates(Item.ItemList, it => subs.Contains(it.Submarine) && (cargoRooms == null || cargoRooms.Contains(it.CurrentHull)))
@@ -515,6 +533,12 @@ namespace Barotrauma
                     if (itemContainer == null)
                     {
                         DebugConsole.AddWarning($"CargoManager: No ItemContainer component found in {containerItem.Prefab.Identifier}!");
+                        return null;
+                    }
+                    if (!itemContainer.CanBeContained(item))
+                    {
+                        // Can't contain the item in the crate -> let's not create it.
+                        containerItem.Remove();
                         return null;
                     }
                     availableContainers.Add(itemContainer);
@@ -589,10 +613,10 @@ namespace Barotrauma
 #if SERVER
                     Entity.Spawner?.CreateNetworkEvent(new EntitySpawner.SpawnEntity(item));
 #endif
-                    (itemContainer?.Item ?? item).CampaignInteractionType = CampaignMode.InteractionType.Cargo;    
+                    (itemContainer?.Item ?? item).AssignCampaignInteractionType(CampaignMode.InteractionType.Cargo);    
                     static void itemSpawned(PurchasedItem purchased, Item item)
                     {
-                        Submarine sub = item.Submarine ?? item.GetRootContainer()?.Submarine;
+                        Submarine sub = item.Submarine ?? item.RootContainer?.Submarine;
                         if (sub != null)
                         {
                             foreach (WifiComponent wifiComponent in item.GetComponents<WifiComponent>())

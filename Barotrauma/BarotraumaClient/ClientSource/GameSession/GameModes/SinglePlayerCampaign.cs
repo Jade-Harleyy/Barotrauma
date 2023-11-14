@@ -148,6 +148,9 @@ namespace Barotrauma
                     case "stats":
                         LoadStats(subElement);
                         break;
+                    case "eventmanager":
+                        GameMain.GameSession.EventManager.Load(subElement);
+                        break;
                 }
             }
 
@@ -210,28 +213,14 @@ namespace Barotrauma
             {
                 StartRound = () => { TryEndRound(); }
             };
-        }
 
-        private void CreateEndRoundButton()
-        {
-            int buttonHeight = (int)(GUI.Scale * 40);
-            int buttonWidth = GUI.IntScale(450);
-            endRoundButton = new GUIButton(HUDLayoutSettings.ToRectTransform(new Rectangle((GameMain.GraphicsWidth / 2) - (buttonWidth / 2), HUDLayoutSettings.ButtonAreaTop.Center.Y - (buttonHeight / 2), buttonWidth, buttonHeight), GUI.Canvas),
-                TextManager.Get("EndRound"), textAlignment: Alignment.Center, style: "EndRoundButton")
+            endRoundButton = CreateEndRoundButton();
+            endRoundButton.OnClicked = (btn, userdata) =>
             {
-                Pulse = true,
-                TextBlock =
-                {
-                    Shadow = true,
-                    AutoScaleHorizontal = true
-                },
-                OnClicked = (btn, userdata) =>
-                {
-                    TryEndRoundWithFuelCheck(
-                        onConfirm: () => TryEndRound(),
-                        onReturnToMapScreen: () => { ShowCampaignUI = true; CampaignUI.SelectTab(InteractionType.Map); });
-                    return true;
-                }
+                TryEndRoundWithFuelCheck(
+                    onConfirm: () => TryEndRound(),
+                    onReturnToMapScreen: () => { ShowCampaignUI = true; CampaignUI.SelectTab(InteractionType.Map); });
+                return true;
             };
         }
 
@@ -379,7 +368,7 @@ namespace Barotrauma
             yield return CoroutineStatus.Success;
         }
 
-        protected override IEnumerable<CoroutineStatus> DoLevelTransition(TransitionType transitionType, LevelData newLevel, Submarine leavingSub, bool mirror, List<TraitorMissionResult> traitorResults = null)
+        protected override IEnumerable<CoroutineStatus> DoLevelTransition(TransitionType transitionType, LevelData newLevel, Submarine leavingSub, bool mirror)
         {
             NextLevel = newLevel;
             bool success = CrewManager.GetCharacters().Any(c => !c.IsDead);
@@ -393,7 +382,7 @@ namespace Barotrauma
                 // Event history must be registered before ending the round or it will be cleared
                 GameMain.GameSession.EventManager.RegisterEventHistory();
             }
-            GameMain.GameSession.EndRound("", traitorResults, transitionType);
+            GameMain.GameSession.EndRound("", transitionType);
             var continueButton = GameMain.GameSession.RoundSummary?.ContinueButton;
             RoundSummary roundSummary = null;
             if (GUIMessageBox.VisibleBox?.UserData is RoundSummary)
@@ -523,17 +512,6 @@ namespace Barotrauma
                     GUIMessageBox.MessageBoxes.Remove(GUIMessageBox.VisibleBox);
                 }
             }
-
-#if DEBUG
-            if (GUI.KeyboardDispatcher.Subscriber == null && PlayerInput.KeyHit(Microsoft.Xna.Framework.Input.Keys.M))
-            {
-                if (GUIMessageBox.MessageBoxes.Any()) { GUIMessageBox.MessageBoxes.Remove(GUIMessageBox.MessageBoxes.Last()); }
-
-                GUIFrame summaryFrame = GameMain.GameSession.RoundSummary.CreateSummaryFrame(GameMain.GameSession, "", null);
-                GUIMessageBox.MessageBoxes.Add(summaryFrame);
-                GameMain.GameSession.RoundSummary.ContinueButton.OnClicked = (_, __) => { GUIMessageBox.MessageBoxes.Remove(summaryFrame); return true; };
-            }
-#endif
 
             if (ShowCampaignUI || ForceMapUI)
             {
@@ -698,6 +676,11 @@ namespace Barotrauma
                 new XAttribute("cheatsenabled", CheatsEnabled));
             modeElement.Add(Settings.Save());
             modeElement.Add(SaveStats());
+
+            if (GameMain.GameSession?.EventManager != null)
+            {
+                modeElement.Add(GameMain.GameSession?.EventManager.Save());
+            }
 
             //save and remove all items that are in someone's inventory so they don't get included in the sub file as well
             foreach (Character c in Character.CharacterList)
