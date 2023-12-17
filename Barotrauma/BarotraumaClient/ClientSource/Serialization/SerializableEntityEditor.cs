@@ -6,6 +6,7 @@ using System.Linq;
 using Barotrauma.Items.Components;
 using Barotrauma.Extensions;
 using System.Diagnostics;
+using static Barotrauma.Editable;
 
 namespace Barotrauma
 {
@@ -1383,7 +1384,7 @@ namespace Barotrauma
             if (entity is ISerializableEntity sEntity && Screen.Selected is SubEditorScreen && !Equals(oldData, value))
             {
                 List<ISerializableEntity> entities = new List<ISerializableEntity> { sEntity };
-                Dictionary<ISerializableEntity, object> affected = MultiSetProperties(property, entity, value);
+                Dictionary<ISerializableEntity, object> affected = MultiSetProperties(property, entity, value, oldData);
 
                 Dictionary<object, List<ISerializableEntity>> oldValues = new Dictionary<object, List<ISerializableEntity>> {{ oldData!, new List<ISerializableEntity> { sEntity }}};
 
@@ -1447,75 +1448,99 @@ namespace Barotrauma
         /// <param name="parentObject"></param>
         /// <param name="value"></param>
         /// <remarks>The function has the same parameters as <see cref="SetValue"/></remarks>
-        private Dictionary<ISerializableEntity, object> MultiSetProperties(SerializableProperty property, object parentObject, object value)
+        private static Dictionary<ISerializableEntity, object> MultiSetProperties(SerializableProperty property, object parentObject, object newValue, object parentValue)
         {
             Dictionary<ISerializableEntity, object> affected = new Dictionary<ISerializableEntity, object>();
 
-            if (!(Screen.Selected is SubEditorScreen) || MapEntity.SelectedList.Count <= 1) { return affected; }
-            if (!(parentObject is ItemComponent || parentObject is Item || parentObject is Structure || parentObject is Hull)) { return affected; }
-            
-            foreach (var entity in MapEntity.SelectedList.Where(entity => entity != parentObject))
+            if (Screen.Selected is SubEditorScreen && MapEntity.SelectedList.Count > 1 && parentObject is ItemComponent or Item or Structure or Hull)
             {
-                switch (parentObject)
+                foreach (MapEntity entity in MapEntity.SelectedList.Where(entity => entity != parentObject))
                 {
-                    case Hull _:
-                    case Structure _:
-                    case Item _:
-                        if (entity.GetType() == parentObject.GetType())
-                        {
-                            SafeAdd((ISerializableEntity) entity, property);
-                            property.PropertyInfo.SetValue(entity, value);
-                        } 
-                        else if (entity is ISerializableEntity { SerializableProperties: { } } sEntity)
-                        {
-                            var props = sEntity.SerializableProperties;
-                            if (props.TryGetValue(property.Name.ToIdentifier(), out SerializableProperty foundProp) && foundProp.Attributes.OfType<Editable>().Any())
+                    object entityValue = property.PropertyInfo.GetValue(entity);
+
+                    switch (parentObject)
+                    {
+                        case Hull:
+                        case Structure:
+                        case Item:
+                            if (entity.GetType() == parentObject.GetType())
                             {
-                                SafeAdd(sEntity, foundProp);
-                                foundProp.PropertyInfo.SetValue(entity, value);
-                            }
-                        }
-                        break;
-                    case ItemComponent parentComponent when entity is Item otherItem:
-                        if (otherItem == parentComponent.Item) { continue; }                        
-                        int componentIndex = parentComponent.Item.Components.FindAll(c => c.GetType() == parentComponent.GetType()).IndexOf(parentComponent);
-                        //find the component of the same type and same index from the other item
-                        var otherComponents = otherItem.Components.FindAll(c => c.GetType() == parentComponent.GetType());
-                        if (componentIndex >= 0 && componentIndex < otherComponents.Count)
-                        {
-                            var component = otherComponents[componentIndex];
-                            Debug.Assert(component.GetType() == parentObject.GetType());                            
-                            SafeAdd(component, property);
-                            if (value is string stringValue && 
-                                property.PropertyType.IsEnum &&
-                                Enum.TryParse(property.PropertyType, stringValue, out var enumValue))
-                            {
-                                property.PropertyInfo.SetValue(component, enumValue);
-                            }
-                            else
-                            {
-                                try
+                                SafeAdd((ISerializableEntity)entity, property);
+
+                                switch (property.Attributes.OfType<Editable>().First().EditType)
                                 {
-                                    property.PropertyInfo.SetValue(component, value);
+                                    case MultiEditType.Modify when property.PropertyType == typeof(float):
+                                        property.PropertyInfo.SetValue(entity, (float)entityValue + ((float)newValue - (float)parentValue));
+                                        break;
+
+                                    case MultiEditType.Modify when property.PropertyType == typeof(int):
+                                        property.PropertyInfo.SetValue(entity, (int)entityValue + ((int)newValue - (int)parentValue));
+                                        break;
+
+                                    case MultiEditType.Relative when property.PropertyType == typeof(float):
+                                        if ((float)parentValue == 0)
+                                        {
+                                            property.PropertyInfo.SetValue(entity, (float)entityValue * (float)newValue);
+                                        } else
+                                        {
+                                            property.PropertyInfo.SetValue(entity, (float)entityValue * ((float)newValue / (float)parentValue));
+                                        }
+                                        break;
+
+                                    default:
+                                        property.PropertyInfo.SetValue(entity, newValue);
+                                        break;
                                 }
-                                catch (ArgumentException e)
+                            }
+                            else if (entity is ISerializableEntity { SerializableProperties: { } } sEntity)
+                            {
+                                var props = sEntity.SerializableProperties;
+                                if (props.TryGetValue(property.Name.ToIdentifier(), out SerializableProperty foundProp) && foundProp.Attributes.OfType<Editable>().Any())
                                 {
-                                    DebugConsole.ThrowError($"Failed to set the value of the property \"{property.Name}\" to {value?.ToString() ?? "null"}", e);
+                                    SafeAdd(sEntity, foundProp);
+                                    foundProp.PropertyInfo.SetValue(entity, newValue);
                                 }
-                            }                            
-                        }
-                        break;
+                            }
+                            break;
+                        case ItemComponent parentComponent when entity is Item otherItem:
+                            if (otherItem == parentComponent.Item) { continue; }
+                            int componentIndex = parentComponent.Item.Components.FindAll(c => c.GetType() == parentComponent.GetType()).IndexOf(parentComponent);
+                            //find the component of the same type and same index from the other item
+                            List<ItemComponent> otherComponents = otherItem.Components.FindAll(c => c.GetType() == parentComponent.GetType());
+                            if (componentIndex >= 0 && componentIndex < otherComponents.Count)
+                            {
+                                ItemComponent component = otherComponents[componentIndex];
+                                Debug.Assert(component.GetType() == parentObject.GetType());
+                                SafeAdd(component, property);
+                                if (newValue is string newStringValue && property.PropertyType.IsEnum && Enum.TryParse(property.PropertyType, newStringValue, out object enumValue))
+                                {
+                                    property.PropertyInfo.SetValue(component, enumValue);
+                                }
+                                else
+                                {
+                                    try
+                                    {
+                                        property.PropertyInfo.SetValue(component, newValue);
+                                    }
+                                    catch (ArgumentException e)
+                                    {
+                                        DebugConsole.ThrowError($"Failed to set the value of the property \"{property.Name}\" to {newValue?.ToString() ?? "null"}", e);
+                                    }
+                                }
+                            }
+                            break;
+                    }
+                }
+
+                void SafeAdd(ISerializableEntity entity, SerializableProperty prop)
+                {
+                    object obj = prop.GetValue(entity);
+                    if (prop.PropertyType == typeof(string) && obj == null) { obj = string.Empty; }
+                    affected.Add(entity, obj);
                 }
             }
 
             return affected;
-
-            void SafeAdd(ISerializableEntity entity, SerializableProperty prop)
-            {
-                object obj = prop.GetValue(entity);
-                if (prop.PropertyType == typeof(string) && obj == null) { obj = string.Empty; }
-                affected.Add(entity, obj);
-            }
         }
     }
 

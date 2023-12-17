@@ -6,6 +6,8 @@ namespace Barotrauma;
 [AttributeUsage(AttributeTargets.Property)]
 class Editable : Attribute
 {
+    public MultiEditType EditType;
+
     public int MaxLength;
     public int DecimalCount = 1;
 
@@ -29,22 +31,32 @@ class Editable : Attribute
     /// </summary>
     public bool ReadOnly;
 
-    public Editable(int maxLength = 20)
+    public enum MultiEditType
     {
-        MaxLength = maxLength;
+        Replace,
+        Modify,
+        Relative
     }
 
-    public Editable(int minValue, int maxValue)
+    public Editable(int maxLength = 20, MultiEditType multiEditType = MultiEditType.Replace)
+    {
+        MaxLength = maxLength;
+        EditType = multiEditType;
+    }
+
+    public Editable(int minValue, int maxValue, MultiEditType multiEditType = MultiEditType.Replace)
     {
         MinValueInt = minValue;
         MaxValueInt = maxValue;
+        EditType = multiEditType;
     }
 
-    public Editable(float minValue, float maxValue, int decimals = 1)
+    public Editable(float minValue, float maxValue, int decimals = 1, MultiEditType multiEditType = MultiEditType.Replace)
     {
         MinValueFloat = minValue;
         MaxValueFloat = maxValue;
         DecimalCount = decimals;
+        EditType = multiEditType;
     }
 }
 

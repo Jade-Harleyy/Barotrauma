@@ -241,7 +241,7 @@ namespace Barotrauma
         }
 
         protected float rotationRad = 0f;
-        [ConditionallyEditable(ConditionallyEditable.ConditionType.AllowRotating, DecimalCount = 3, ForceShowPlusMinusButtons = true, ValueStep = 0.1f), Serialize(0.0f, IsPropertySaveable.Yes)]
+        [ConditionallyEditable(ConditionallyEditable.ConditionType.AllowRotating, EditType = Editable.MultiEditType.Modify, DecimalCount = 3, ForceShowPlusMinusButtons = true, ValueStep = 0.1f), Serialize(0.0f, IsPropertySaveable.Yes)]
         public float Rotation
         {
             get => MathHelper.ToDegrees(rotationRad);

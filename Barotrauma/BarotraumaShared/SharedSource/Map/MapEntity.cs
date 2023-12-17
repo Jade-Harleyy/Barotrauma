@@ -167,7 +167,7 @@ namespace Barotrauma
         public bool SpriteDepthOverrideIsSet { get; private set; }
         public float SpriteOverrideDepth => SpriteDepth;
         private float _spriteOverrideDepth = float.NaN;
-        [Editable(0.001f, 0.999f, decimals: 3), Serialize(float.NaN, IsPropertySaveable.Yes)]
+        [Editable(0.001f, 0.999f, decimals: 3, EditType = Editable.MultiEditType.Modify), Serialize(float.NaN, IsPropertySaveable.Yes)]
         public float SpriteDepth
         {
             get
@@ -186,7 +186,7 @@ namespace Barotrauma
             }
         }
 
-        [Serialize(1f, IsPropertySaveable.Yes), Editable(0.01f, 10f, DecimalCount = 3, ValueStep = 0.1f)]
+        [Serialize(1f, IsPropertySaveable.Yes), Editable(0.01f, 10f, EditType = Editable.MultiEditType.Relative, DecimalCount = 3, ValueStep = 0.1f)]
         public virtual float Scale { get; set; } = 1;
 
         [Editable, Serialize(false, IsPropertySaveable.Yes)]
