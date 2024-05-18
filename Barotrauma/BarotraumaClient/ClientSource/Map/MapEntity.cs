@@ -927,7 +927,6 @@ namespace Barotrauma
             if (SelectedList.Count == 0) return;
             foreach (var e in SelectedList)
             {
-                if (e is Gap gap && gap.ConnectedDoor != null) { continue; }
                 FilteredSelectedList.Add(e);
             }
             var first = FilteredSelectedList.FirstOrDefault();
