@@ -349,23 +349,9 @@ namespace Barotrauma
             sw.Stop();
             GameMain.PerformanceCounter.AddElapsedTicks("Draw:Map:FrontParticles", sw.ElapsedTicks);
             sw.Restart();
-
+            
             DamageEffect.CurrentTechnique = DamageEffect.Techniques["StencilShader"];
-            spriteBatch.Begin(SpriteSortMode.Immediate,
-                BlendState.NonPremultiplied, SamplerState.LinearWrap,
-                null, null,
-                DamageEffect,
-                cam.Transform);
-            Submarine.DrawDamageable(spriteBatch, DamageEffect, false);
-            spriteBatch.End();
-
-            sw.Stop();
-            GameMain.PerformanceCounter.AddElapsedTicks("Draw:Map:FrontDamageable", sw.ElapsedTicks);
-            sw.Restart();
-
-            spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.NonPremultiplied, null, DepthStencilState.None, null, null, cam.Transform);
-            Submarine.DrawFront(spriteBatch, false, null);
-            spriteBatch.End();
+            Submarine.DrawFront(spriteBatch, false);
 
             sw.Stop();
             GameMain.PerformanceCounter.AddElapsedTicks("Draw:Map:FrontStructuresItems", sw.ElapsedTicks);
@@ -406,6 +392,8 @@ namespace Barotrauma
                     GameMain.GameSession.EventManager.DebugDraw(spriteBatch);
                 }
             }
+
+            Submarine.DrawDebugOverlay(spriteBatch);
             spriteBatch.End();
 
             sw.Stop();

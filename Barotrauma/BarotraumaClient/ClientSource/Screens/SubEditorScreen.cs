@@ -6051,11 +6051,8 @@ namespace Barotrauma
             spriteBatch.End();
 
             spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.NonPremultiplied, transformMatrix: cam.Transform);
-            Submarine.DrawDamageable(spriteBatch, null, editing: true, e => !IsSubcategoryHidden(e.Prefab?.Subcategory));
-            spriteBatch.End();
-
-            spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.NonPremultiplied, transformMatrix: cam.Transform);
-            Submarine.DrawFront(spriteBatch, editing: true, e => !IsSubcategoryHidden(e.Prefab?.Subcategory));
+            Submarine.DrawFront(spriteBatch, transformOverride: null, editing: true, predicate: e => !IsSubcategoryHidden(e.Prefab?.Subcategory));
+            Submarine.DrawDebugOverlay(spriteBatch);
             if (!WiringMode)
             {
                 MapEntityPrefab.Selected?.DrawPlacing(spriteBatch, cam);
@@ -6182,9 +6179,7 @@ namespace Barotrauma
                 spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.NonPremultiplied, null, null, null, null, transform);
                 Submarine.Draw(spriteBatch);
                 Submarine.DrawFront(spriteBatch);
-                Submarine.DrawDamageable(spriteBatch, null);
                 spriteBatch.End();
-
 
                 GameMain.Instance.GraphicsDevice.SetRenderTarget(null);
                 rt.SaveAsPng(stream, width, height);

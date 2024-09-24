@@ -868,7 +868,7 @@ namespace Barotrauma
                 Level.Loaded.DrawDebugOverlay(spriteBatch, Cam);
                 Submarine.Draw(spriteBatch, false);
                 Submarine.DrawFront(spriteBatch);
-                Submarine.DrawDamageable(spriteBatch, null);
+                Submarine.DrawDebugOverlay(spriteBatch);
                 GUI.DrawRectangle(spriteBatch, new Rectangle(new Point(0, -Level.Loaded.Size.Y), Level.Loaded.Size), Color.Gray, thickness: (int)(1.0f / Cam.Zoom));
 
                 for (int i = 0; i < Level.Loaded.Tunnels.Count; i++)

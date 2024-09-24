@@ -2046,7 +2046,6 @@ namespace Barotrauma
 #if CLIENT
                 RoundSound.RemoveAllRoundSounds();
                 GameMain.LightManager?.ClearLights();
-                depthSortedDamageable.Clear();
 #endif
                 var _loaded = new List<Submarine>(loaded);
                 foreach (Submarine sub in _loaded)

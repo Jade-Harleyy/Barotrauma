@@ -14,7 +14,7 @@ namespace Barotrauma
 {
     partial class Submarine : Entity, IServerPositionSync
     {
-        //drawing ----------------------------------------------------
+        #region Culling
         private static readonly HashSet<Submarine> visibleSubs = new HashSet<Submarine>();
 
         private static double prevCullTime;
@@ -102,146 +102,148 @@ namespace Barotrauma
         {
             visibleEntities?.Remove(entity);
         }
+        #endregion
 
-        public static void Draw(SpriteBatch spriteBatch, bool editing = false)
+        #region Drawing
+        public static float DamageEffectCutoff;
+        public static Color DamageEffectColor;
+
+        private static void ResetDamageEffectCutoff()
         {
-            var entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+            GameMain.GameScreen.DamageEffect.Parameters["aCutoff"].SetValue(0f);
+            GameMain.GameScreen.DamageEffect.Parameters["cCutoff"].SetValue(0f);
+            DamageEffectCutoff = 0f;
+        }
+
+        public static void Draw(SpriteBatch spriteBatch, bool editing = false, Predicate<MapEntity> predicate = null)
+        {
+            List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
 
             foreach (MapEntity e in entitiesToRender)
             {
+                if (!predicate.Evaluate(e)) { continue; }
                 e.Draw(spriteBatch, editing);
             }
         }
 
-        public static void DrawFront(SpriteBatch spriteBatch, bool editing = false, Predicate<MapEntity> predicate = null)
+        public static void DrawDamageable(SpriteBatch spriteBatch, bool editing = false, Predicate<Structure> predicate = null)
         {
-            var entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+            List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
 
-            foreach (MapEntity e in entitiesToRender)
+            foreach (Structure s in entitiesToRender.OfType<Structure>().OrderByDescending(s => s.GetDrawDepth()))
             {
-                if (!e.DrawOverWater) { continue; }
-
-                if (predicate != null)
-                {
-                    if (!predicate(e)) { continue; }
-                }
-
-                e.Draw(spriteBatch, editing, false);
+                if (!s.DrawDamageEffect || !predicate.Evaluate(s)) { continue; }
+                s.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
             }
 
-            if (GameMain.DebugDraw)
-            {
-                foreach (Submarine sub in Loaded)
-                {
-                    Rectangle worldBorders = sub.Borders;
-                    worldBorders.Location += sub.WorldPosition.ToPoint();
-                    worldBorders.Y = -worldBorders.Y;
-
-                    GUI.DrawRectangle(spriteBatch, worldBorders, Color.White, false, 0, 5);
-
-                    if (sub.SubBody == null || sub.subBody.PositionBuffer.Count < 2) continue;
-
-                    Vector2 prevPos = ConvertUnits.ToDisplayUnits(sub.subBody.PositionBuffer[0].Position);
-                    prevPos.Y = -prevPos.Y;
-
-                    for (int i = 1; i < sub.subBody.PositionBuffer.Count; i++)
-                    {
-                        Vector2 currPos = ConvertUnits.ToDisplayUnits(sub.subBody.PositionBuffer[i].Position);
-                        currPos.Y = -currPos.Y;
-
-                        GUI.DrawRectangle(spriteBatch, new Rectangle((int)currPos.X - 10, (int)currPos.Y - 10, 20, 20), Color.Blue * 0.6f, true, 0.01f);
-                        GUI.DrawLine(spriteBatch, prevPos, currPos, Color.Cyan * 0.5f, 0, 5);
-
-                        prevPos = currPos;
-                    }
-                }
-            }
+            ResetDamageEffectCutoff();
         }
 
-        public static float DamageEffectCutoff;
-        public static Color DamageEffectColor;
-
-        private static readonly List<Structure> depthSortedDamageable = new List<Structure>();
-        public static void DrawDamageable(SpriteBatch spriteBatch, Effect damageEffect, bool editing = false, Predicate<MapEntity> predicate = null)
+        public static void DrawFront(SpriteBatch spriteBatch, bool simpleWalls = true, Matrix? transformOverride = null, bool editing = false, Predicate<MapEntity> predicate = null)
         {
-            var entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+            List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+            transformOverride ??= Screen.Selected?.Cam?.Transform;
 
-            depthSortedDamageable.Clear();
-
-            //insertion sort according to draw depth
-            foreach (MapEntity e in entitiesToRender)
+            bool damageBatch = false, normalBatch = false; // Reduce the amount of batch toggles by only ending a batch when the type of structure changes.
+            foreach (MapEntity e in entitiesToRender.OrderByDescending(e => e is Structure s ? s.GetDrawDepth() : e.SpriteDepth))
             {
-                if (e is Structure structure && structure.DrawDamageEffect)
+                if (!predicate.Evaluate(e)) { continue; }
+
+                if (e is Structure { DrawDamageEffect: true } s)
                 {
-                    if (predicate != null)
+                    if (!simpleWalls)
                     {
-                        if (!predicate(e)) { continue; }
-                    }
-                    float drawDepth = structure.GetDrawDepth();
-                    int i = 0;
-                    while (i < depthSortedDamageable.Count)
-                    {
-                        float otherDrawDepth = depthSortedDamageable[i].GetDrawDepth();
-                        if (otherDrawDepth < drawDepth) { break; }
-                        i++;
-                    }
-                    depthSortedDamageable.Insert(i, structure);
-                }
-            }
-
-            foreach (Structure s in depthSortedDamageable)
-            {
-                s.DrawDamage(spriteBatch, damageEffect, editing);
-            }
-            if (damageEffect != null)
-            {
-                damageEffect.Parameters["aCutoff"].SetValue(0.0f);
-                damageEffect.Parameters["cCutoff"].SetValue(0.0f);
-                DamageEffectCutoff = 0.0f;
-            }
-        }
-
-        public static void DrawPaintedColors(SpriteBatch spriteBatch, bool editing = false, Predicate<MapEntity> predicate = null)
-        {
-            var entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
-
-            foreach (MapEntity e in entitiesToRender)
-            {
-                if (e is Hull hull)
-                {
-                    if (hull.SupportsPaintedColors)
-                    {
-                        if (predicate != null)
+                        if (normalBatch)
                         {
-                            if (!predicate(e)) { continue; }
+                            spriteBatch.End();
+                            normalBatch = false;
                         }
-                        hull.DrawSectionColors(spriteBatch);
+                        if (!damageBatch)
+                        {
+                            spriteBatch.Begin(SpriteSortMode.Immediate, samplerState: SamplerState.LinearWrap, effect: GameMain.GameScreen.DamageEffect, transformMatrix: transformOverride);
+                            damageBatch = true;
+                        }
                     }
+                    s.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
                 }
+                else if (e.DrawOverWater)
+                {
+                    if (!simpleWalls)
+                    {
+                        if (damageBatch)
+                        {
+                            spriteBatch.End();
+                            damageBatch = false;
+                        }
+                        if (!normalBatch)
+                        {
+                            spriteBatch.Begin(SpriteSortMode.BackToFront, transformMatrix: transformOverride);
+                            normalBatch = true;
+                        }
+                    }
+                    e.Draw(spriteBatch, editing, false);
+                }
+
+                ResetDamageEffectCutoff();
+            }
+
+            if (!simpleWalls && (damageBatch || normalBatch)) { spriteBatch.End(); }
+        }
+
+        public static void DrawDebugOverlay(SpriteBatch spriteBatch)
+        {
+            if (!GameMain.DebugDraw) { return; }
+
+            foreach (Submarine sub in visibleSubs)
+            {
+                Rectangle worldBorders = sub.Borders;
+                worldBorders.Location += sub.WorldPosition.ToPoint();
+                worldBorders.Y = -worldBorders.Y;
+
+                GUI.DrawRectangle(spriteBatch, worldBorders, Color.White, false, 0, 5);
+
+                if (sub.subBody?.PositionBuffer is not { Count: >= 2 }) { return; }
+
+                Vector2 prevPos = ConvertUnits.ToDisplayUnits(sub.subBody.PositionBuffer[0].Position).FlipY();
+
+                for (int i = 1; i < sub.subBody.PositionBuffer.Count; i++)
+                {
+                    Vector2 currPos = ConvertUnits.ToDisplayUnits(sub.subBody.PositionBuffer[i].Position).FlipY();
+
+                    GUI.DrawRectangle(spriteBatch, new Rectangle((int)currPos.X - 10, (int)currPos.Y - 10, 20, 20), Color.Blue * 0.6f, true, 0.01f);
+                    GUI.DrawLine(spriteBatch, prevPos, currPos, Color.Cyan * 0.5f, 0, 5);
+
+                    prevPos = currPos;
+                }
+            }
+        }
+
+        public static void DrawPaintedColors(SpriteBatch spriteBatch, bool editing = false, Predicate<Hull> predicate = null)
+        {
+            List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+
+            foreach (MapEntity e in entitiesToRender)
+            {
+                if (e is not Hull { SupportsPaintedColors: true } hull || !predicate.Evaluate(hull)) { continue; }
+                hull.DrawSectionColors(spriteBatch);
             }
         }
 
         public static void DrawBack(SpriteBatch spriteBatch, bool editing = false, Predicate<MapEntity> predicate = null)
         {
-            var entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+            List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
 
             foreach (MapEntity e in entitiesToRender)
             {
-                if (!e.DrawBelowWater) continue;
-
-                if (predicate != null)
-                {
-                    if (!predicate(e)) continue;
-                }
-
+                if (!e.DrawBelowWater || !predicate.Evaluate(e)) { continue; }
                 e.Draw(spriteBatch, editing, true);
             }
         }
 
-        public static void DrawGrid(SpriteBatch spriteBatch, int gridCells, Vector2 gridCenter, Vector2 roundedGridCenter, float alpha = 1.0f)
+        public static void DrawGrid(SpriteBatch spriteBatch, int gridCells, Vector2 gridCenter, Vector2 roundedGridCenter, float alpha = 1f)
         {
-            Vector2 topLeft = roundedGridCenter - Vector2.One * GridSize * gridCells / 2;
-            Vector2 bottomRight = roundedGridCenter + Vector2.One * GridSize * gridCells / 2;
+            Vector2 topLeft = roundedGridCenter - GridSize * gridCells / 2;
+            Vector2 bottomRight = roundedGridCenter + GridSize * gridCells / 2;
 
             for (int i = 0; i < gridCells; i++)
             {
@@ -251,21 +253,24 @@ namespace Barotrauma
                 float normalizedDistX = Math.Abs(i + distFromGridX - gridCells / 2) / (gridCells / 2);
                 float normalizedDistY = Math.Abs(i - distFromGridY - gridCells / 2) / (gridCells / 2);
 
-                float expandX = MathHelper.Lerp(30.0f, 0.0f, normalizedDistY);
-                float expandY = MathHelper.Lerp(30.0f, 0.0f, normalizedDistX);
+                float expandX = MathHelper.Lerp(30f, 0f, normalizedDistY);
+                float expandY = MathHelper.Lerp(30f, 0f, normalizedDistX);
 
                 GUI.DrawLine(spriteBatch,
                     new Vector2(topLeft.X - expandX, -bottomRight.Y + i * GridSize.Y),
                     new Vector2(bottomRight.X + expandX, -bottomRight.Y + i * GridSize.Y),
-                    Color.White * (1.0f - normalizedDistY) * alpha, depth: 0.6f, width: 3);
+                    Color.White * (1f - normalizedDistY) * alpha, depth: 0.6f, width: 3);
                 GUI.DrawLine(spriteBatch,
                     new Vector2(topLeft.X + i * GridSize.X, -topLeft.Y + expandY),
                     new Vector2(topLeft.X + i * GridSize.X, -bottomRight.Y - expandY),
-                    Color.White * (1.0f - normalizedDistX) * alpha, depth: 0.6f, width: 3);
+                    Color.White * (1f - normalizedDistX) * alpha, depth: 0.6f, width: 3);
             }
         }
+        #endregion
 
-        // TODO remove
+        #warning TODO: remove
+        #region MiniMap
+
         [Obsolete("Use MiniMap.CreateMiniMap()")]
         public void CreateMiniMap(GUIComponent parent, IEnumerable<Entity> pointsOfInterest = null, bool ignoreOutpost = false)
         {
@@ -473,6 +478,9 @@ namespace Barotrauma
             return new MiniMapHullData(scaledPolygon, worldRect, parentRect.Size, snappedRectangles, hullRefs.ToImmutableArray());
         }
 
+        #endregion
+
+        #region Submarine Editor
         public void CheckForErrors()
         {
             List<string> errorMsgs = new List<string>();
@@ -819,7 +827,9 @@ namespace Barotrauma
 
             return worldGridPos;
         }
+        #endregion
 
+        #region Syncing
         public void ClientReadPosition(IReadMessage msg, float sendingTime)
         {
             var posInfo = PhysicsBody.ClientRead(msg, sendingTime, parentDebugName: Info.Name);
@@ -843,5 +853,6 @@ namespace Barotrauma
             bool enabled = msg.ReadBoolean();
             SetLayerEnabled(layerIdentifier, enabled);
         }
+        #endregion
     }
 }

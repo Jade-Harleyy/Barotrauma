@@ -413,7 +413,7 @@ namespace Barotrauma.Lights
             GameMain.GameScreen.DamageEffect.CurrentTechnique = GameMain.GameScreen.DamageEffect.Techniques["StencilShaderSolidColor"];
             GameMain.GameScreen.DamageEffect.Parameters["solidColor"].SetValue(Color.Black.ToVector4());
             spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.NonPremultiplied, SamplerState.LinearWrap, transformMatrix: spriteBatchTransform, effect: GameMain.GameScreen.DamageEffect);
-            Submarine.DrawDamageable(spriteBatch, GameMain.GameScreen.DamageEffect);
+            Submarine.DrawDamageable(spriteBatch);
             spriteBatch.End();
 
             graphics.BlendState = BlendState.Additive;
