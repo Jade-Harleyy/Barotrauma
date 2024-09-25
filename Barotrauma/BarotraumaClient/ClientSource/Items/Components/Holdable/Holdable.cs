@@ -22,9 +22,6 @@ namespace Barotrauma.Items.Components
             }
 
             Vector2 gridPos = picker.Position;
-            Vector2 roundedGridPos = new Vector2(
-                MathUtils.RoundTowardsClosest(picker.Position.X, Submarine.GridSize.X),
-                MathUtils.RoundTowardsClosest(picker.Position.Y, Submarine.GridSize.Y));
             Vector2 attachPos = GetAttachPosition(picker);
 
             if (item.Submarine == null)
@@ -36,7 +33,6 @@ namespace Barotrauma.Items.Components
                     {
                         //set to submarine-relative position
                         gridPos += attachTarget.Submarine.Position;
-                        roundedGridPos += attachTarget.Submarine.Position;
                         attachPos += attachTarget.Submarine.Position;
                     }
                 }
@@ -44,11 +40,10 @@ namespace Barotrauma.Items.Components
             else
             {
                 gridPos += item.Submarine.Position;
-                roundedGridPos += item.Submarine.Position;
                 attachPos += item.Submarine.Position;
             }
 
-            Submarine.DrawGrid(spriteBatch, 14, gridPos, roundedGridPos, alpha: 0.4f);
+            Submarine.DrawGrid(spriteBatch, 14, gridPos, 0.4f);
 
             Sprite sprite = item.Sprite;
             foreach (ContainedItemSprite containedSprite in item.Prefab.ContainedSprites)

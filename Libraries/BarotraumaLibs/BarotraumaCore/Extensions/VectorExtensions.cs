@@ -99,5 +99,7 @@ namespace Barotrauma.Extensions
             v.Y += padding.Y + padding.W;
             return v;
         }
+
+        public static Vector2 RoundTowardsClosest(Vector2 value, Vector2 div) => new Vector2(MathUtils.RoundTowardsClosest(value.X, div.X), MathUtils.RoundTowardsClosest(value.Y, div.Y));
     }
 }

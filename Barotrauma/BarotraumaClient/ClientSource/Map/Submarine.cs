@@ -14,6 +14,8 @@ namespace Barotrauma
 {
     partial class Submarine : Entity, IServerPositionSync
     {
+        #region Drawing
+
         #region Culling
         private static readonly HashSet<Submarine> visibleSubs = new HashSet<Submarine>();
 
@@ -52,7 +54,7 @@ namespace Barotrauma
             {
                 return;
             }
-            
+
             visibleSubs.Clear();
             foreach (Submarine sub in Loaded)
             {
@@ -104,7 +106,6 @@ namespace Barotrauma
         }
         #endregion
 
-        #region Drawing
         public static float DamageEffectCutoff;
         public static Color DamageEffectColor;
 
@@ -115,41 +116,70 @@ namespace Barotrauma
             DamageEffectCutoff = 0f;
         }
 
+        /// <summary>
+        /// Draws all map entities.
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <param name="editing">Whether the <paramref name="spriteBatch"/> should render every entity, or only visible ones.</param>
+        /// <param name="predicate">Entities will only be drawn if they match the given predicate.</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
+        /// </remarks>
         public static void Draw(SpriteBatch spriteBatch, bool editing = false, Predicate<MapEntity> predicate = null)
         {
             List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
 
-            foreach (MapEntity e in entitiesToRender)
+            foreach (MapEntity entity in entitiesToRender)
             {
-                if (!predicate.Evaluate(e)) { continue; }
-                e.Draw(spriteBatch, editing);
+                if (!predicate.Evaluate(entity)) { continue; }
+                entity.Draw(spriteBatch, editing);
             }
         }
 
+        /// <summary>
+        /// Draws all walls with the damage shader. (<see cref="GameMain.GameScreen.DamageEffect"/>)
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <param name="editing">Whether the <paramref name="spriteBatch"/> should render every damageable structure, or only visible ones.</param>
+        /// <param name="predicate">Structures will only be drawn if they match the given predicate.</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
+        /// </remarks>
         public static void DrawDamageable(SpriteBatch spriteBatch, bool editing = false, Predicate<Structure> predicate = null)
         {
-            List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+            IEnumerable<Structure> entitiesToRender = !editing && visibleEntities != null ? visibleEntities.OfType<Structure>().Intersect(Structure.WallList) : Structure.WallList;
 
-            foreach (Structure s in entitiesToRender.OfType<Structure>().OrderByDescending(s => s.GetDrawDepth()))
+            foreach (Structure structure in entitiesToRender.OrderByDescending(s => s.GetDrawDepth()))
             {
-                if (!s.DrawDamageEffect || !predicate.Evaluate(s)) { continue; }
-                s.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
+                if (!predicate.Evaluate(structure)) { continue; }
+                structure.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
             }
 
             ResetDamageEffectCutoff();
         }
 
+        /// <summary>
+        /// Draws all map entities that are above water.
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <param name="simpleWalls">If <see langword="false"/>, walls are drawn with the damage shader. (<see cref="GameMain.GameScreen.DamageEffect"/>)</param>
+        /// <param name="transformOverride">Overrides the transform matrix used when <paramref name="simpleWalls"/> is <see langword="true"/>.<br/>Defaults to <see cref="Screen.Selected.Cam.Transform"/>.</param>
+        /// <param name="editing">Whether the <paramref name="spriteBatch"/> should render every entity, or only visible ones.</param>
+        /// <param name="predicate">Entities will only be drawn if they match the given predicate.</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called unless <paramref name="simpleWalls"/> is <see langword="true"/>, in which case it must not be active.
+        /// </remarks>
         public static void DrawFront(SpriteBatch spriteBatch, bool simpleWalls = true, Matrix? transformOverride = null, bool editing = false, Predicate<MapEntity> predicate = null)
         {
             List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
             transformOverride ??= Screen.Selected?.Cam?.Transform;
 
             bool damageBatch = false, normalBatch = false; // Reduce the amount of batch toggles by only ending a batch when the type of structure changes.
-            foreach (MapEntity e in entitiesToRender.OrderByDescending(e => e is Structure s ? s.GetDrawDepth() : e.SpriteDepth))
+            foreach (MapEntity entity in entitiesToRender.OrderByDescending(e => e is Structure s ? s.GetDrawDepth() : e.SpriteDepth))
             {
-                if (!predicate.Evaluate(e)) { continue; }
+                if (!predicate.Evaluate(entity)) { continue; }
 
-                if (e is Structure { DrawDamageEffect: true } s)
+                if (entity is Structure { DrawDamageEffect: true } structure)
                 {
                     if (!simpleWalls)
                     {
@@ -164,9 +194,9 @@ namespace Barotrauma
                             damageBatch = true;
                         }
                     }
-                    s.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
+                    structure.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
                 }
-                else if (e.DrawOverWater)
+                else if (entity.DrawOverWater)
                 {
                     if (!simpleWalls)
                     {
@@ -181,7 +211,7 @@ namespace Barotrauma
                             normalBatch = true;
                         }
                     }
-                    e.Draw(spriteBatch, editing, false);
+                    entity.Draw(spriteBatch, editing, false);
                 }
 
                 ResetDamageEffectCutoff();
@@ -190,6 +220,13 @@ namespace Barotrauma
             if (!simpleWalls && (damageBatch || normalBatch)) { spriteBatch.End(); }
         }
 
+        /// <summary>
+        /// Draws each <see cref="Submarine"/>'s debug overlay.
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
+        /// </remarks>
         public static void DrawDebugOverlay(SpriteBatch spriteBatch)
         {
             if (!GameMain.DebugDraw) { return; }
@@ -218,30 +255,60 @@ namespace Barotrauma
             }
         }
 
+        /// <summary>
+        /// Draws all painted spots.
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <param name="editing">Whether the <paramref name="spriteBatch"/> should render paint in every <see cref="Hull"/>, or only visible <see cref="Hull"/>s.</param>
+        /// <param name="predicate">Paint will only be drawn in <see cref="Hull"/>s that match the given predicate.</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
+        /// </remarks>
         public static void DrawPaintedColors(SpriteBatch spriteBatch, bool editing = false, Predicate<Hull> predicate = null)
         {
-            List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
+            IEnumerable<Hull> entitiesToRender = !editing && visibleEntities != null ? visibleEntities.OfType<Hull>() : Hull.HullList;
 
-            foreach (MapEntity e in entitiesToRender)
+            foreach (Hull hull in entitiesToRender)
             {
-                if (e is not Hull { SupportsPaintedColors: true } hull || !predicate.Evaluate(hull)) { continue; }
+                if (!hull.SupportsPaintedColors || !predicate.Evaluate(hull)) { continue; }
                 hull.DrawSectionColors(spriteBatch);
             }
         }
 
+        /// <summary>
+        /// Draws all map entities that are below water.
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <param name="editing">Whether the <paramref name="spriteBatch"/> should render every entity, or only visible ones.</param>
+        /// <param name="predicate">Entities will only be drawn if they match the given predicate.</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
+        /// </remarks>
         public static void DrawBack(SpriteBatch spriteBatch, bool editing = false, Predicate<MapEntity> predicate = null)
         {
             List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
 
-            foreach (MapEntity e in entitiesToRender)
+            foreach (MapEntity entity in entitiesToRender)
             {
-                if (!e.DrawBelowWater || !predicate.Evaluate(e)) { continue; }
-                e.Draw(spriteBatch, editing, true);
+                if (!entity.DrawBelowWater || !predicate.Evaluate(entity)) { continue; }
+                entity.Draw(spriteBatch, editing, true);
             }
         }
 
-        public static void DrawGrid(SpriteBatch spriteBatch, int gridCells, Vector2 gridCenter, Vector2 roundedGridCenter, float alpha = 1f)
+        /// <summary>
+        /// Draws a wiring/component placing grid.
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <param name="gridCells">Amount of grid cells to draw in each direction.</param>
+        /// <param name="gridCenter">Center position of the grid.</param>
+        /// <param name="alpha">Transparency multiplier of the grid lines.</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
+        /// </remarks>
+        public static void DrawGrid(SpriteBatch spriteBatch, int gridCells, Vector2 gridCenter, float alpha = 1f)
         {
+            Vector2 roundedGridCenter = VectorExtensions.RoundTowardsClosest(gridCenter, GridSize);
+
             Vector2 topLeft = roundedGridCenter - GridSize * gridCells / 2;
             Vector2 bottomRight = roundedGridCenter + GridSize * gridCells / 2;
 
@@ -268,7 +335,7 @@ namespace Barotrauma
         }
         #endregion
 
-        #warning TODO: remove
+        #warning TODO: remove these
         #region MiniMap
 
         [Obsolete("Use MiniMap.CreateMiniMap()")]
@@ -420,6 +487,7 @@ namespace Barotrauma
             }
         }
 
+        [Obsolete]
         public static MiniMapHullData ConstructLinkedHulls(Hull mainHull, HashSet<Hull> linkedHulls, GUIComponent parent, Rectangle worldBorders)
         {
             Rectangle parentRect = parent.Rect;

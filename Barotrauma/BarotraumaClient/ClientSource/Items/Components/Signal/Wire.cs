@@ -238,9 +238,6 @@ namespace Barotrauma.Items.Components
                     if (user.CanInteract && currLength < MaxLength)
                     {
                         Vector2 gridPos = Character.Controlled.Position;
-                        Vector2 roundedGridPos = new Vector2(
-                            MathUtils.RoundTowardsClosest(Character.Controlled.Position.X, Submarine.GridSize.X),
-                            MathUtils.RoundTowardsClosest(Character.Controlled.Position.Y, Submarine.GridSize.Y));
                         //Vector2 attachPos = GetAttachPosition(user);
 
                         if (item.Submarine == null)
@@ -252,19 +249,17 @@ namespace Barotrauma.Items.Components
                                 {
                                     //set to submarine-relative position
                                     gridPos += attachTarget.Submarine.Position;
-                                    roundedGridPos += attachTarget.Submarine.Position;
                                 }
                             }
                         }
                         else
                         {
                             gridPos += item.Submarine.Position;
-                            roundedGridPos += item.Submarine.Position;
                         }
 
                         if (!SubEditorScreen.IsSubEditor() || !SubEditorScreen.ShouldDrawGrid)
                         {
-                            Submarine.DrawGrid(spriteBatch, 14, gridPos, roundedGridPos, alpha: 0.25f);
+                            Submarine.DrawGrid(spriteBatch, 14, gridPos, 0.25f);
                         }
 
                         WireSection.Draw(
