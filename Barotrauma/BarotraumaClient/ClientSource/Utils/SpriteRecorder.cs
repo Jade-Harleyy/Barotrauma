@@ -182,7 +182,7 @@ namespace Barotrauma
             commandList.Add(command);
         }
         
-        public void Draw(Texture2D texture, Vector2 pos, Rectangle? srcRect, Color color, float rotationRad, Vector2 origin, Vector2 scale, SpriteEffects effects, float depth)
+        public void Draw(Texture2D texture, Vector2 pos, Rectangle? srcRect, Color color, float rotationRad, Vector2 origin, Vector2 scale, SpriteEffects effects, float depth, SpriteBatch.EffectWithParams? effectOverride = null)
         {
             if (isDisposed) { return; }
 

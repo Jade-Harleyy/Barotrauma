@@ -344,25 +344,6 @@ namespace Barotrauma
             return true;
         }
 
-        public override void Draw(SpriteBatch spriteBatch, bool editing, bool back = true)
-        {
-            if (Prefab.Sprite == null) { return; }
-
-            if (editing)
-            {
-                if (!SubEditorScreen.IsLayerVisible(this)) { return; }
-                if (!HasBody && !ShowStructures) { return; }
-                if (HasBody && !ShowWalls) { return; }
-            }
-
-            Draw(spriteBatch, editing, back, null);
-        }
-
-        public void DrawDamage(SpriteBatch spriteBatch, Effect damageEffect, bool editing)
-        {
-            Draw(spriteBatch, editing, false, damageEffect);
-        }
-
         private float GetRealDepth()
         {
             return SpriteDepthOverrideIsSet ? SpriteOverrideDepth : Prefab.Sprite.Depth;
@@ -373,7 +354,19 @@ namespace Barotrauma
             return GetDrawDepth(GetRealDepth(), Prefab.Sprite);
         }
 
-        private void Draw(SpriteBatch spriteBatch, bool editing, bool back = true, Effect damageEffect = null)
+        public override void Draw(SpriteBatch spriteBatch, bool editing, bool back = true) => Draw(spriteBatch, editing, back, false);
+
+        /// <summary>
+        /// Draws a structure.
+        /// </summary>
+        /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
+        /// <param name="editing"><see langword="true"/> if the structure is being drawn in the <see cref="SubEditorScreen"/>.</param>
+        /// <param name="back">If <see langword="true"/>, the structure will be drawn below water.</param>
+        /// <param name="drawDamage">If <see langword="true"/>, walls will be drawn using the damage effect. (<see cref="GameScreen.DamageEffect"/>)</param>
+        /// <remarks>
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
+        /// </remarks>
+        public void Draw(SpriteBatch spriteBatch, bool editing, bool back, bool drawDamage)
         {
             if (Prefab.Sprite == null) { return; }
             if (editing)
@@ -420,7 +413,7 @@ namespace Barotrauma
 
             Vector2 textureOffset = this.textureOffset;
 
-            if (back && damageEffect == null && !isWiringMode)
+            if (back && !drawDamage && !isWiringMode)
             {
                 if (Prefab.BackgroundSprite != null)
                 {
@@ -493,22 +486,16 @@ namespace Barotrauma
 
                 for (int i = 0; i < Sections.Length; i++)
                 {
+                    Dictionary<string, object> effectParams = new Dictionary<string, object>();
+
                     Rectangle drawSection = Sections[i].rect;
-                    if (damageEffect != null)
+                    if (drawDamage)
                     {
                         float newCutoff = MathHelper.Lerp(0.0f, 0.65f, Sections[i].damage / MaxHealth);
 
-                        if (Math.Abs(newCutoff - Submarine.DamageEffectCutoff) > 0.01f || color != Submarine.DamageEffectColor)
-                        {
-                            damageEffect.Parameters["aCutoff"].SetValue(newCutoff);
-                            damageEffect.Parameters["cCutoff"].SetValue(newCutoff * 1.2f);
-                            damageEffect.Parameters["inColor"].SetValue(color.ToVector4());
-
-                            damageEffect.CurrentTechnique.Passes[0].Apply();
-
-                            Submarine.DamageEffectCutoff = newCutoff;
-                            Submarine.DamageEffectColor = color;
-                        }
+                        effectParams.Add("aCutoff", newCutoff);
+                        effectParams.Add("cCutoff", newCutoff * 1.2f);
+                        effectParams.Add("inColor", color.ToVector4());
                     }
                     if (!HasDamage && i == 0)
                     {
@@ -546,7 +533,8 @@ namespace Barotrauma
                         startOffset: sectionOffset,
                         depth: depth,
                         textureScale: TextureScale * Scale,
-                        spriteEffects: Prefab.Sprite.effects ^ SpriteEffects);
+                        spriteEffects: Prefab.Sprite.effects ^ SpriteEffects,
+                        effectOverride: drawDamage ? new SpriteBatch.EffectWithParams(GameScreen.DamageEffect, effectParams) : null);
                 }
 
                 foreach (var decorativeSprite in Prefab.DecorativeSprites)

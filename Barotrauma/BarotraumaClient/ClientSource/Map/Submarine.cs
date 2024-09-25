@@ -106,16 +106,6 @@ namespace Barotrauma
         }
         #endregion
 
-        public static float DamageEffectCutoff;
-        public static Color DamageEffectColor;
-
-        private static void ResetDamageEffectCutoff()
-        {
-            GameMain.GameScreen.DamageEffect.Parameters["aCutoff"].SetValue(0f);
-            GameMain.GameScreen.DamageEffect.Parameters["cCutoff"].SetValue(0f);
-            DamageEffectCutoff = 0f;
-        }
-
         /// <summary>
         /// Draws all map entities.
         /// </summary>
@@ -137,7 +127,7 @@ namespace Barotrauma
         }
 
         /// <summary>
-        /// Draws all walls with the damage shader. (<see cref="GameMain.GameScreen.DamageEffect"/>)
+        /// Draws all walls with the damage effect. (<see cref="GameScreen.DamageEffect"/>)
         /// </summary>
         /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
         /// <param name="editing">Whether the <paramref name="spriteBatch"/> should render every damageable structure, or only visible ones.</param>
@@ -149,79 +139,44 @@ namespace Barotrauma
         {
             IEnumerable<Structure> entitiesToRender = !editing && visibleEntities != null ? visibleEntities.OfType<Structure>().Intersect(Structure.WallList) : Structure.WallList;
 
-            foreach (Structure structure in entitiesToRender.OrderByDescending(s => s.GetDrawDepth()))
+            foreach (Structure structure in entitiesToRender)
             {
                 if (!predicate.Evaluate(structure)) { continue; }
-                structure.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
+                structure.Draw(spriteBatch, editing, false, true);
             }
-
-            ResetDamageEffectCutoff();
         }
 
         /// <summary>
         /// Draws all map entities that are above water.
         /// </summary>
         /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
-        /// <param name="simpleWalls">If <see langword="false"/>, walls are drawn with the damage shader. (<see cref="GameMain.GameScreen.DamageEffect"/>)</param>
-        /// <param name="transformOverride">Overrides the transform matrix used when <paramref name="simpleWalls"/> is <see langword="true"/>.<br/>Defaults to <see cref="Screen.Selected.Cam.Transform"/>.</param>
+        /// <param name="simpleWalls">If <see langword="false"/>, walls will be drawn using the damage effect. (<see cref="GameScreen.DamageEffect"/>)</param>
         /// <param name="editing">Whether the <paramref name="spriteBatch"/> should render every entity, or only visible ones.</param>
         /// <param name="predicate">Entities will only be drawn if they match the given predicate.</param>
         /// <remarks>
-        /// <paramref name="spriteBatch"/> must be active when this method is called unless <paramref name="simpleWalls"/> is <see langword="true"/>, in which case it must not be active.
+        /// <paramref name="spriteBatch"/> must be active when this method is called.
         /// </remarks>
-        public static void DrawFront(SpriteBatch spriteBatch, bool simpleWalls = true, Matrix? transformOverride = null, bool editing = false, Predicate<MapEntity> predicate = null)
+        public static void DrawFront(SpriteBatch spriteBatch, bool simpleWalls = true, bool editing = false, Predicate<MapEntity> predicate = null)
         {
             List<MapEntity> entitiesToRender = !editing && visibleEntities != null ? visibleEntities : MapEntity.MapEntityList;
-            transformOverride ??= Screen.Selected?.Cam?.Transform;
 
-            bool damageBatch = false, normalBatch = false; // Reduce the amount of batch toggles by only ending a batch when the type of structure changes.
-            foreach (MapEntity entity in entitiesToRender.OrderByDescending(e => e is Structure s ? s.GetDrawDepth() : e.SpriteDepth))
+            foreach (MapEntity entity in entitiesToRender)
             {
                 if (!predicate.Evaluate(entity)) { continue; }
 
                 if (entity is Structure { DrawDamageEffect: true } structure)
                 {
-                    if (!simpleWalls)
-                    {
-                        if (normalBatch)
-                        {
-                            spriteBatch.End();
-                            normalBatch = false;
-                        }
-                        if (!damageBatch)
-                        {
-                            spriteBatch.Begin(SpriteSortMode.Immediate, samplerState: SamplerState.LinearWrap, effect: GameMain.GameScreen.DamageEffect, transformMatrix: transformOverride);
-                            damageBatch = true;
-                        }
-                    }
-                    structure.DrawDamage(spriteBatch, GameMain.GameScreen.DamageEffect, editing);
+                    structure.Draw(spriteBatch, editing, false, !simpleWalls);
                 }
                 else if (entity.DrawOverWater)
                 {
-                    if (!simpleWalls)
-                    {
-                        if (damageBatch)
-                        {
-                            spriteBatch.End();
-                            damageBatch = false;
-                        }
-                        if (!normalBatch)
-                        {
-                            spriteBatch.Begin(SpriteSortMode.BackToFront, transformMatrix: transformOverride);
-                            normalBatch = true;
-                        }
-                    }
                     entity.Draw(spriteBatch, editing, false);
                 }
-
-                ResetDamageEffectCutoff();
             }
-
-            if (!simpleWalls && (damageBatch || normalBatch)) { spriteBatch.End(); }
         }
 
         /// <summary>
-        /// Draws each <see cref="Submarine"/>'s debug overlay.
+        /// Draws all <see cref="Submarine"/>s' debug overlays.
         /// </summary>
         /// <param name="spriteBatch">The <see cref="SpriteBatch"/> to render to.</param>
         /// <remarks>

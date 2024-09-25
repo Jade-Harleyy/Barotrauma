@@ -15,8 +15,7 @@ namespace Barotrauma
         private RenderTarget2D renderTargetWater;
         private RenderTarget2D renderTargetFinal;
 
-        public readonly Effect DamageEffect;
-        private readonly Texture2D damageStencil;
+        public static readonly Effect DamageEffect;
         private readonly Texture2D distortTexture;        
 
         private float fadeToBlackState;
@@ -26,6 +25,17 @@ namespace Barotrauma
         public Effect GrainEffect { get; private set; }
         public Effect ThresholdTintEffect { get; private set; }
         public Effect BlueprintEffect { get; set; }
+
+        static GameScreen()
+        {
+            DamageEffect = EffectLoader.Load("Effects/damageshader");
+
+            Texture2D damageStencil = TextureLoader.FromFile("Content/Map/walldamage.png");
+            DamageEffect.Parameters["xStencil"].SetValue(damageStencil);
+
+            DamageEffect.Parameters["aMultiplier"].SetValue(50f);
+            DamageEffect.Parameters["cMultiplier"].SetValue(200f);
+        }
 
         public GameScreen(GraphicsDevice graphics)
         {
@@ -39,17 +49,11 @@ namespace Barotrauma
             };
 
             //var blurEffect = LoadEffect("Effects/blurshader");
-            DamageEffect = EffectLoader.Load("Effects/damageshader");
             PostProcessEffect = EffectLoader.Load("Effects/postprocess");
             GradientEffect = EffectLoader.Load("Effects/gradientshader");
             GrainEffect = EffectLoader.Load("Effects/grainshader");
             ThresholdTintEffect = EffectLoader.Load("Effects/thresholdtint");
             BlueprintEffect = EffectLoader.Load("Effects/blueprintshader");
-
-            damageStencil = TextureLoader.FromFile("Content/Map/walldamage.png");
-            DamageEffect.Parameters["xStencil"].SetValue(damageStencil);
-            DamageEffect.Parameters["aMultiplier"].SetValue(50.0f);
-            DamageEffect.Parameters["cMultiplier"].SetValue(200.0f);
 
             distortTexture = TextureLoader.FromFile("Content/Effects/distortnormals.png");
             PostProcessEffect.Parameters["xDistortTexture"].SetValue(distortTexture);
@@ -349,9 +353,11 @@ namespace Barotrauma
             sw.Stop();
             GameMain.PerformanceCounter.AddElapsedTicks("Draw:Map:FrontParticles", sw.ElapsedTicks);
             sw.Restart();
-            
+
             DamageEffect.CurrentTechnique = DamageEffect.Techniques["StencilShader"];
+            spriteBatch.Begin(SpriteSortMode.BackToFront, samplerState: SamplerState.LinearWrap, transformMatrix: cam.Transform);
             Submarine.DrawFront(spriteBatch, false);
+            spriteBatch.End();
 
             sw.Stop();
             GameMain.PerformanceCounter.AddElapsedTicks("Draw:Map:FrontStructuresItems", sw.ElapsedTicks);

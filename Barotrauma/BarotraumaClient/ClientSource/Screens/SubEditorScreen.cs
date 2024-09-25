@@ -6051,7 +6051,7 @@ namespace Barotrauma
             spriteBatch.End();
 
             spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.NonPremultiplied, transformMatrix: cam.Transform);
-            Submarine.DrawFront(spriteBatch, transformOverride: null, editing: true, predicate: e => !IsSubcategoryHidden(e.Prefab?.Subcategory));
+            Submarine.DrawFront(spriteBatch, editing: true, predicate: e => !IsSubcategoryHidden(e.Prefab?.Subcategory));
             Submarine.DrawDebugOverlay(spriteBatch);
             if (!WiringMode)
             {

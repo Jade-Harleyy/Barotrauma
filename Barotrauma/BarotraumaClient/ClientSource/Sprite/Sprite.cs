@@ -298,7 +298,8 @@ namespace Barotrauma
             Vector2? startOffset = null,
             Vector2? textureScale = null,
             float? depth = null,
-            SpriteEffects? spriteEffects = null)
+            SpriteEffects? spriteEffects = null,
+            SpriteBatch.EffectWithParams? effectOverride = null)
         {
             if (Texture == null) { return; }
 
@@ -345,7 +346,8 @@ namespace Barotrauma
                     origin: Vector2.Zero,
                     scale: scale,
                     effects: spriteEffects.Value,
-                    layerDepth: depth ?? this.depth);
+                    layerDepth: depth ?? this.depth,
+                    effectOverride: effectOverride);
             }
 
             //wrap the drawOffset inside the sourceRect

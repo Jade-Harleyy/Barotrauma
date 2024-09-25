@@ -21,7 +21,8 @@ namespace Microsoft.Xna.Framework.Graphics
             Vector2 origin,
             Vector2 scale,
             SpriteEffects effects,
-            float layerDepth);
+            float layerDepth,
+            SpriteBatch.EffectWithParams? effectOverride = null);
 
         public void Draw(
             Texture2D texture,
@@ -381,21 +382,22 @@ namespace Microsoft.Xna.Framework.Graphics
         /// <param name="scale">A scaling of this sprite.</param>
         /// <param name="effects">Modificators for drawing. Can be combined.</param>
         /// <param name="layerDepth">A depth of the layer of this sprite.</param>
-		public void Draw (Texture2D texture,
-				Vector2 position,
-				Rectangle? sourceRectangle,
-				Color color,
-				float rotation,
-				Vector2 origin,
-				Vector2 scale,
-				SpriteEffects effects,
-                float layerDepth)
-		{
+		public void Draw(Texture2D texture,
+                Vector2 position,
+                Rectangle? sourceRectangle,
+                Color color,
+                float rotation,
+                Vector2 origin,
+                Vector2 scale,
+                SpriteEffects effects,
+                float layerDepth,
+                EffectWithParams? effectOverride = null)
+        {
             CheckValid(texture);
 
             var item = _batcher.CreateBatchItem();
             item.Texture = texture;
-            item.Effect = _effect;
+            item.Effect = effectOverride ?? _effect;
 
             // set SortKey based on SpriteSortMode.
             switch ( _sortMode )

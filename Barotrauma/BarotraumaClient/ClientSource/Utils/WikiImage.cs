@@ -144,9 +144,8 @@ namespace Barotrauma
 
                 spriteBatch.Begin(SpriteSortMode.BackToFront, transformMatrix: transform);
                 Submarine.DrawBack(spriteBatch, false);
+                Submarine.DrawFront(spriteBatch);
                 spriteBatch.End();
-
-                Submarine.DrawFront(spriteBatch, false, transform);
 
                 GameMain.Instance.GraphicsDevice.SetRenderTarget(null);
                 GameMain.Instance.GraphicsDevice.Viewport = prevViewport;
