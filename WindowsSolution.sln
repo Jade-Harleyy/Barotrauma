@@ -45,16 +45,15 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DeployAll", "Deploy\DeployA
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "BarotraumaLibs", "BarotraumaLibs", "{29DF600C-C2EB-48F5-9CCB-7E3B1409D95F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarotraumaCore", "Libraries\BarotraumaLibs\BarotraumaCore\BarotraumaCore.csproj", "{FA273D62-455C-4BF7-B020-D0EBDE9EB565}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BarotraumaCore", "Libraries\BarotraumaLibs\BarotraumaCore\BarotraumaCore.csproj", "{FA273D62-455C-4BF7-B020-D0EBDE9EB565}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EosInterface", "Libraries\BarotraumaLibs\EosInterface\EosInterface.csproj", "{38C5D23D-0858-4254-B7B7-145221A8AB75}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EosInterface", "Libraries\BarotraumaLibs\EosInterface\EosInterface.csproj", "{38C5D23D-0858-4254-B7B7-145221A8AB75}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EosInterface.Implementation.Win64", "Libraries\BarotraumaLibs\EosInterfacePrivate\EosInterface.Implementation.Win64.csproj", "{B411A619-1643-4C5F-A95D-9427D59BE010}"
 EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "BarotraumaShared", "Barotrauma\BarotraumaShared\BarotraumaShared.shproj", "{EDA87797-C82F-4FAF-BC6B-2298CA709C48}"
+EndProject
 Global
-	GlobalSection(SharedMSBuildProjectFiles) = preSolution
-		Libraries\GameAnalytics\GA-SDK-MONO-SHARED\GA-SDK-MONO-SHARED.projitems*{95c4d59d-9be4-4278-b4f8-46c0ba1a3916}*SharedItemsImports = 5
-	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
 		Release|x64 = Release|x64
@@ -180,10 +179,16 @@ Global
 		{FA273D62-455C-4BF7-B020-D0EBDE9EB565} = {29DF600C-C2EB-48F5-9CCB-7E3B1409D95F}
 		{38C5D23D-0858-4254-B7B7-145221A8AB75} = {29DF600C-C2EB-48F5-9CCB-7E3B1409D95F}
 		{B411A619-1643-4C5F-A95D-9427D59BE010} = {29DF600C-C2EB-48F5-9CCB-7E3B1409D95F}
-		{D42D8E48-A687-445D-AAF1-9E7E6EBF1DE6} = {DE36F45F-F09E-4719-B953-00D148F7722A}
+		{EDA87797-C82F-4FAF-BC6B-2298CA709C48} = {F35DF9BF-0BED-4FEF-A51C-DD83C531882F}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {17032EAB-554B-4B44-A4F6-EFB177ACAB7A}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		Barotrauma\BarotraumaShared\BarotraumaShared.projitems*{47848c6e-c7a8-4ec3-96c2-3bc8a4234afa}*SharedItemsImports = 5
+		Libraries\GameAnalytics\GA-SDK-MONO-SHARED\GA-SDK-MONO-SHARED.projitems*{95c4d59d-9be4-4278-b4f8-46c0ba1a3916}*SharedItemsImports = 5
+		Barotrauma\BarotraumaShared\BarotraumaShared.projitems*{978633a8-094a-4623-9b82-8533fc8ba1cc}*SharedItemsImports = 5
+		Barotrauma\BarotraumaShared\BarotraumaShared.projitems*{eda87797-c82f-4faf-bc6b-2298ca709c48}*SharedItemsImports = 13
 	EndGlobalSection
 	GlobalSection(MonoDevelopProperties) = preSolution
 		version = 0.9.0.0

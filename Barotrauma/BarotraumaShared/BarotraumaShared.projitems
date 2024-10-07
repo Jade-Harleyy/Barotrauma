@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <SharedGUID>eda87797-c82f-4faf-bc6b-2298ca709c48</SharedGUID>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <Import_RootNamespace>Barotrauma</Import_RootNamespace>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(Configuration)'!='Debug'">
+    <Content Include="$(MSBuildThisFileDirectory)\**\*" CopyToOutputDirectory="PreserveNewest" Exclude="$(MSBuildThisFileDirectory)\Data\Saves\*.save;$(MSBuildThisFileDirectory)\ModLists\*.xml" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)'=='Debug'">
+    <Content Include="$(MSBuildThisFileDirectory)\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)\**\*.cs" />
+    <Compile Remove="$(MSBuildThisFileDirectory)\Content\**\*.cs" />
+    <Content Remove="$(MSBuildThisFileDirectory)\**\*.cs" />
+    <Content Remove="$(MSBuildThisFileDirectory)\**\*.props" />
+    <Content Remove="$(MSBuildThisFileDirectory)\BarotraumaShared.projitems" />
+    <Content Remove="$(MSBuildThisFileDirectory)\BarotraumaShared.shproj" />
+  </ItemGroup>
+</Project>
